@@ -48,6 +48,44 @@ try:
 except Exception:
     pass   # never crash on updater failure
 
+
+# ── First-run desktop shortcut ──────────────────────────────
+# On first launch from a new install location, create a desktop
+# shortcut so the user never needs to find the .exe again.
+def _maybe_create_shortcut() -> None:
+    # Only in a frozen (PyInstaller) build, not during dev
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        import json, ctypes
+        # Use AppData to track whether we've made a shortcut for this install path
+        appdata  = os.environ.get("APPDATA", os.path.expanduser("~"))
+        flag_dir = os.path.join(appdata, "DesktopWidget")
+        os.makedirs(flag_dir, exist_ok=True)
+        flag_file = os.path.join(flag_dir, "shortcut_created.json")
+
+        exe_path = sys.executable
+        # Load existing flag
+        created_for = ""
+        if os.path.exists(flag_file):
+            try:
+                created_for = json.load(open(flag_file)).get("exe_path", "")
+            except Exception:
+                pass
+
+        if created_for == exe_path:
+            return  # shortcut already exists for this install path
+
+        # Create the shortcut
+        from utils import create_desktop_shortcut
+        ok = create_desktop_shortcut(exe_path, "DesktopWidget")
+        if ok:
+            json.dump({"exe_path": exe_path}, open(flag_file, "w"))
+    except Exception:
+        pass  # never crash on shortcut failure
+
+_maybe_create_shortcut()
+
 import tkinter as tk
 from tkinter import messagebox
 

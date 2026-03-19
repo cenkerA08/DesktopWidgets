@@ -2,7 +2,7 @@
 version.py — Single source of truth for the app version.
 """
 
-VERSION = "1.0.15"
+VERSION = "1.0.16"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"
