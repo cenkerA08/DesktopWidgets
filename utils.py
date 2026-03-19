@@ -301,33 +301,96 @@ def find_non_overlapping(x: int, y: int, w: int, h: int,
                          others: list[tuple[int,int,int,int]],
                          sw: int, sh: int) -> tuple[int, int]:
     """
-    Nudge (x,y) until the rect (x,y,w,h) does not overlap
-    any rect in others (with MARGIN gap). Max 30 attempts.
+    After a drag-drop, keep the dragged widget where the user placed it
+    and push any overlapping widgets downward instead. Widgets are clamped
+    so nothing goes off the bottom of the screen — if there's not enough
+    room, compress gaps to minimum MARGIN spacing.
     """
-    for _ in range(30):
-        overlap = None
-        for ox, oy, ow, oh in others:
-            if (x < ox + ow + MARGIN and x + w + MARGIN > ox and
-                    y < oy + oh + MARGIN and y + h + MARGIN > oy):
-                overlap = (ox, oy, ow, oh); break
-        if not overlap:
-            break
-        ox, oy, ow, oh = overlap
-        # Push in the cheapest direction
-        pushes = [
-            (ox + ow + MARGIN - x,  "r"),
-            (x + w + MARGIN - ox,   "l"),
-            (oy + oh + MARGIN - y,  "d"),
-            (y + h + MARGIN - oy,   "u"),
-        ]
-        amt, direction = min(pushes)
-        if direction == "r":   x += amt
-        elif direction == "l": x -= amt
-        elif direction == "d": y += amt
-        else:                  y -= amt
-        x, y = clamp_to_screen(x, y, w, h, sw, sh)
-        x, y = snap_to_grid(x), snap_to_grid(y)
+    x, y = clamp_to_screen(x, y, w, h, sw, sh)
     return x, y
+
+
+def reflow_push_down(dropped_x, dropped_y, dropped_w, dropped_h,
+                     all_widgets, sw, sh):
+    """
+    After a widget is dropped, push all overlapping widgets away.
+    Cascades in the same direction — so pushing widget B down will also
+    push widget C down if B lands on C. No direction changes mid-cascade.
+    Returns a dict of {widget: (new_x, new_y)}.
+    """
+    MARGIN = 10
+
+    # Start with current positions
+    positions = {}
+    for widget in all_widgets:
+        rx, ry, rw, rh = widget.rect()
+        positions[widget] = [rx, ry, rw, rh]
+
+    def _overlaps(ax, ay, aw, ah, bx, by, bw, bh):
+        return (ax < bx + bw + MARGIN and ax + aw + MARGIN > bx and
+                ay < by + bh + MARGIN and ay + ah + MARGIN > by)
+
+    def _push_dir(ax, ay, aw, ah, bx, by, bw, bh):
+        """Return ('h'|'v', sign) direction to push b away from a."""
+        acx = ax + aw // 2; acy = ay + ah // 2
+        bcx = bx + bw // 2; bcy = by + bh // 2
+        dx = bcx - acx;     dy  = bcy - acy
+        ndx = dx / max(aw, bw, 1)
+        ndy = dy / max(ah, bh, 1)
+        if abs(ndx) >= abs(ndy):
+            return 'h', (1 if dx >= 0 else -1)
+        else:
+            return 'v', (1 if dy >= 0 else -1)
+
+    # Phase 1 — push all direct overlaps with the dropped widget,
+    #           record the direction each widget was pushed
+    push_dirs = {}   # widget -> ('h'|'v', sign)
+    for widget, pos in positions.items():
+        bx, by, bw, bh = pos
+        if _overlaps(dropped_x, dropped_y, dropped_w, dropped_h, bx, by, bw, bh):
+            axis, sign = _push_dir(dropped_x, dropped_y, dropped_w, dropped_h,
+                                   bx, by, bw, bh)
+            if axis == 'h':
+                pos[0] = (dropped_x + dropped_w + MARGIN) if sign > 0 \
+                         else (dropped_x - bw - MARGIN)
+            else:
+                pos[1] = (dropped_y + dropped_h + MARGIN) if sign > 0 \
+                         else (dropped_y - bh - MARGIN)
+            push_dirs[widget] = (axis, sign)
+
+    # Phase 2 — cascade: if a pushed widget now overlaps another,
+    #           push that other in the SAME direction
+    changed = True
+    while changed:
+        changed = False
+        for widget, (axis, sign) in list(push_dirs.items()):
+            ax, ay, aw, ah = positions[widget]
+            for other, opos in positions.items():
+                if other is widget: continue
+                bx, by, bw, bh = opos
+                if not _overlaps(ax, ay, aw, ah, bx, by, bw, bh):
+                    continue
+                # Push other in same direction as widget was pushed
+                if axis == 'h':
+                    new_bx = (ax + aw + MARGIN) if sign > 0 else (ax - bw - MARGIN)
+                    if new_bx != bx:
+                        opos[0] = new_bx
+                        push_dirs[other] = (axis, sign)
+                        changed = True
+                else:
+                    new_by = (ay + ah + MARGIN) if sign > 0 else (ay - bh - MARGIN)
+                    if new_by != by:
+                        opos[1] = new_by
+                        push_dirs[other] = (axis, sign)
+                        changed = True
+
+    # Clamp everything to screen
+    for widget, pos in positions.items():
+        bx, by, bw, bh = pos
+        pos[0] = max(MARGIN, min(bx, sw - bw - MARGIN))
+        pos[1] = max(MARGIN, min(by, sh - bh - MARGIN))
+
+    return {w: (p[0], p[1]) for w, p in positions.items()}
 
 # ── String util ────────────────────────────────────────────
 def clip(s: str, n: int) -> str:

@@ -415,23 +415,41 @@ class Manager:
         if not name: return
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        # Find a free spot
-        max_y = max((g.get("y", 60) for g in self.data["groups"]), default=60)
-        from utils import snap_to_grid
+
+        # Try to place below the lowest existing widget, clamped to screen
+        from theme import HDR_H
+        new_h = HDR_H + 90 + 14 * 2  # approx empty widget height
+        if self.data["groups"]:
+            max_y = max(g.get("y", 60) + g.get("h", 200)
+                        for g in self.data["groups"])
+            ny = max_y + 10
+        else:
+            ny = 60
+        # If it would go off screen, place in center
+        if ny + new_h > sh - 40:
+            nx = (sw - 480) // 2
+            ny = (sh - new_h) // 2
+        else:
+            nx = 60
+
         g = {
-            "id":      self.data["next_id"],
-            "name":    name.strip(),
-            "apps":    [],
-            "x":       60,
-            "y":       snap_to_grid(max_y + 300),
-            "cols":    5,
-            "collapsed":     False,
+            "id":             self.data["next_id"],
+            "name":           name.strip(),
+            "apps":           [],
+            "x":              nx,
+            "y":              ny,
+            "cols":           5,
+            "collapsed":      False,
             "theme_override": None,
         }
         self.data["groups"].append(g)
         self.data["next_id"] += 1
         config.save(self.data)
-        self._create_group(g)
+        gw = self._create_group(g)
+        # Flash the widget so user can find it
+        gw.win.lift()
+        gw.win.attributes("-topmost", True)
+        self.root.after(1500, lambda: gw.win.attributes("-topmost", False))
 
     def delete_group(self, gid: int) -> None:
         group = next((g for g in self.data["groups"] if g["id"] == gid), None)

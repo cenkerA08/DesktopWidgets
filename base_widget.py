@@ -400,9 +400,27 @@ class BaseWidget:
             # Magnetic snap to other widgets
             others = self.mgr.all_rects(exclude=self)
             nx, ny = magnetic_snap(nx, ny, self.W, self.H, others)
-            # No overlap
-            nx, ny = find_non_overlapping_release(nx, ny, self.W, self.H, others, sw, sh)
+            # Apply dropped position
             self.win.geometry(f"+{nx}+{ny}")
+
+            # Push all overlapping widgets away — 4 directions, cascading
+            from utils import reflow_push_down
+            all_widgets = (
+                list(self.mgr.wins.values()) +
+                [w for w in [self.mgr.statsplus_win,
+                              self.mgr.notes_win,
+                              self.mgr.media_win] if w] +
+                list(self.mgr.docs_wins.values())
+            )
+            other_widgets = [w for w in all_widgets if w is not self]
+            new_positions  = reflow_push_down(nx, ny, self.W, self.H,
+                                              other_widgets, sw, sh)
+            for widget, (wx, wy) in new_positions.items():
+                ox, oy, _, _ = widget.rect()
+                if wx != ox or wy != oy:
+                    widget.win.geometry(f"+{wx}+{wy}")
+                    widget._save_geometry()
+
             self._save_geometry()
 
         elif self._mode == "resize" and self._moved:
