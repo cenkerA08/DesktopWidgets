@@ -72,65 +72,62 @@ def write_spec(tcl_dir, tk_dir) -> None:
         data_lines.append(f"    (r'{tcl_dir}', 'tcl'),")
     if tk_dir and os.path.isdir(tk_dir):
         data_lines.append(f"    (r'{tk_dir}', 'tk'),")
-    datas = "\n".join(data_lines)
+    datas   = "\n".join(data_lines)
+    hidden  = "    'winsdk'," if __import__('importlib').util.find_spec('winsdk') else ""
+    main_py = os.path.join(PROJECT_DIR, "main.py")
+    icon    = os.path.join(PROJECT_DIR, "icon.ico")
+    icon_line = f"icon=r'{icon}'," if os.path.isfile(icon) else "icon=None,"
 
-    hidden = []
-    try:
-        import winsdk  # noqa
-        hidden.append("    'winsdk',")
-    except ImportError:
-        pass
-
-    spec = textwrap.dedent(f"""\
-        # -*- mode: python ; coding: utf-8 -*-
-        from PyInstaller.utils.hooks import collect_all
-
-        tk_datas, tk_binaries, tk_hiddenimports = collect_all('tkinter')
-
-        a = Analysis(
-            [r'{os.path.join(PROJECT_DIR, "main.py")}'],
-            pathex=[r'{PROJECT_DIR}'],
-            binaries=tk_binaries,
-            datas=tk_datas + [
-        {datas}
-            ],
-            hiddenimports=tk_hiddenimports + [
-                'PIL', 'PIL.Image', 'PIL.ImageTk', 'PIL.ImageDraw',
-                'PIL.ImageFont', 'PIL.ImageFilter',
-                'psutil', 'win32gui', 'win32con', 'win32api',
-                'wmi', 'comtypes',
-        {"".join(hidden)}
-            ],
-            hookspath=[],
-            runtime_hooks=[],
-            excludes=['matplotlib','numpy','scipy','pandas','pytest'],
-            noarchive=False,
-        )
-
-        pyz = PYZ(a.pure)
-
-        exe = EXE(
-            pyz, a.scripts, [],
-            exclude_binaries=True,
-            name='DesktopWidget',
-            debug=False,
-            bootloader_ignore_signals=False,
-            strip=False,
-            upx=True,
-            console=False,
-            icon=r'{os.path.join(PROJECT_DIR, "icon.ico")}' if os.path.isfile(r'{os.path.join(PROJECT_DIR, "icon.ico")}') else None,
-        )
-
-        coll = COLLECT(
-            exe, a.binaries, a.datas,
-            strip=False,
-            upx=True,
-            upx_exclude=[],
-            name='DesktopWidget',
-        )
-    """)
+    lines = [
+        "# -*- mode: python ; coding: utf-8 -*-",
+        "from PyInstaller.utils.hooks import collect_all",
+        "",
+        "tk_datas, tk_binaries, tk_hiddenimports = collect_all('tkinter')",
+        "",
+        "a = Analysis(",
+        f"    [r'{main_py}'],",
+        f"    pathex=[r'{PROJECT_DIR}'],",
+        "    binaries=tk_binaries,",
+        "    datas=tk_datas + [",
+        datas,
+        "    ],",
+        "    hiddenimports=tk_hiddenimports + [",
+        "        'PIL', 'PIL.Image', 'PIL.ImageTk', 'PIL.ImageDraw',",
+        "        'PIL.ImageFont', 'PIL.ImageFilter',",
+        "        'psutil', 'win32gui', 'win32con', 'win32api',",
+        "        'wmi', 'comtypes',",
+        hidden,
+        "    ],",
+        "    hookspath=[],",
+        "    runtime_hooks=[],",
+        "    excludes=['matplotlib','numpy','scipy','pandas','pytest'],",
+        "    noarchive=False,",
+        ")",
+        "",
+        "pyz = PYZ(a.pure)",
+        "",
+        "exe = EXE(",
+        "    pyz, a.scripts, [],",
+        "    exclude_binaries=True,",
+        "    name='DesktopWidget',",
+        "    debug=False,",
+        "    bootloader_ignore_signals=False,",
+        "    strip=False,",
+        "    upx=True,",
+        "    console=False,",
+        f"    {icon_line}",
+        ")",
+        "",
+        "coll = COLLECT(",
+        "    exe, a.binaries, a.datas,",
+        "    strip=False,",
+        "    upx=True,",
+        "    upx_exclude=[],",
+        "    name='DesktopWidget',",
+        ")",
+    ]
     with open(SPEC_FILE, "w") as f:
-        f.write(spec)
+        f.write("\n".join(lines) + "\n")
     print("  spec written")
 
 
