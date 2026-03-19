@@ -325,11 +325,21 @@ class Manager:
 
     def send_app_to_desktop(self, app: dict, src_gid: int) -> None:
         """Create a desktop shortcut and remove the app from its widget."""
-        ok = create_desktop_shortcut(app["path"], app["name"])
+        import tkinter.messagebox as mb
+
+        # Verify the target still exists before doing anything
+        path = app.get("path", "")
+        if not os.path.exists(path):
+            mb.showerror("Not found",
+                f"Can't find:\n{path}\n\nThe app may have been moved or uninstalled.")
+            return
+
+        ok = create_desktop_shortcut(path, app["name"])
         if not ok:
-            import tkinter.messagebox as mb
             mb.showerror("Error", f"Could not create shortcut for {app['name']}.")
             return
+
+        # Only remove from widget after shortcut confirmed created
         src_group = next((g for g in self.data["groups"] if g["id"] == src_gid), None)
         if src_group:
             src_group["apps"] = [a for a in src_group["apps"]
@@ -542,9 +552,9 @@ class Manager:
 
         options = [
             ("🗂  App folder",       "folder"),
-            ("📁  Files widget", "docs"),
             ("📊  Stats+",           "statsplus"),
             ("📝  Notes",            "notes"),
+            ("📁  Files widget",     "docs"),
             ("🎵  Media",            "media"),
         ]
 
