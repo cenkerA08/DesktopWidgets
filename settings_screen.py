@@ -38,30 +38,42 @@ def _btn(parent, text, command, t, accent=False, danger=False, **kw):
 
 
 def _preset_swatch_row(parent, t, current_name, on_select, bg=None):
-    """Render a compact row of preset swatches. on_select(name) called on click."""
-    _bg = bg or t.bg
-    # Two rows of swatches so they all fit
-    names = list(PRESETS.keys())
+    """Render compact rows of preset swatches. All slots fixed width."""
+    _bg     = bg or t.bg
+    names   = list(PRESETS.keys())
     PER_ROW = 6
+    SW_W, SW_H = 40, 26
+    COL_W   = 52   # fixed column width — label never pushes swatch around
+
     for row_start in range(0, len(names), PER_ROW):
         row_frame = tk.Frame(parent, bg=_bg)
-        row_frame.pack(fill="x", pady=(0, 4))
+        row_frame.pack(anchor="w", pady=(0, 2))
         for name in names[row_start:row_start + PER_ROW]:
             preset = PRESETS[name]
             is_sel = name == current_name
-            col = tk.Frame(row_frame, bg=_bg)
-            col.pack(side="left", padx=3)
-            swatch = tk.Frame(col, bg=preset.bg, width=46, height=30,
+
+            # Fixed-width column so every slot is the same size
+            col = tk.Frame(row_frame, bg=_bg, width=COL_W)
+            col.pack_propagate(False)
+            col.pack(side="left")
+
+            swatch = tk.Frame(col, bg=preset.bg, width=SW_W, height=SW_H,
                               highlightbackground=t.accent if is_sel else t.border,
                               highlightthickness=2 if is_sel else 1,
                               cursor="hand2")
-            swatch.pack()
-            # Accent dot
-            dot = tk.Frame(swatch, bg=preset.accent, width=10, height=3)
-            dot.place(relx=0.5, rely=0.85, anchor="center")
-            tk.Label(col, text=name, font=("Segoe UI", 7),
-                     bg=_bg, fg=t.txt if is_sel else t.txt2).pack(pady=1)
+            swatch.place(relx=0.5, rely=0.0, anchor="n", y=2)
+
+            dot = tk.Frame(swatch, bg=preset.accent, width=8, height=3)
+            dot.place(relx=0.5, rely=0.82, anchor="center")
+
+            short = name if len(name) <= 9 else name[:8] + "…"
+            tk.Label(col, text=short, font=("Segoe UI", 6),
+                     bg=_bg, fg=t.txt if is_sel else t.txt2,
+                     anchor="center").place(relx=0.5, rely=1.0, anchor="s", y=-1)
+
+            col.config(height=SW_H + 16)
             swatch.bind("<Button-1>", lambda e, n=name: on_select(n))
+            dot.bind("<Button-1>",    lambda e, n=name: on_select(n))
 
 
 
