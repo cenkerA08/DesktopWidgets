@@ -63,7 +63,7 @@ class Theme:
         return t
 
 
-# ── 8 Distinct Themes ──────────────────────────────────────
+# ── 18 Distinct Themes ─────────────────────────────────────
 PRESETS: dict[str, Theme] = {
     # 1. Cyberpunk (kept as requested)
     "Cyberpunk": Theme(
@@ -144,6 +144,116 @@ PRESETS: dict[str, Theme] = {
         txt="#ffffff", txt2="#aaaaaa", txt3="#dddddd",
         warn="#cccccc", danger="#aaaaaa",
         up_col="#e0e0e0", dn_col="#c0c0c0",
+    ),
+
+    # 9. Synthwave - purple and yellow (neon 80s vibes)
+    "Synthwave": Theme(
+        bg="#120b1f", hdr="#0c0717", border="#3f2a5c",
+        hov="#1f1435", btn="#251b3a", btn_h="#2f234a",
+        accent="#f6d365", ok="#f6d365",
+        txt="#f0e6ff", txt2="#b79fd9", txt3="#d8c2ff",
+        warn="#ff9f4b", danger="#ff4d6d",
+        up_col="#f6d365", dn_col="#b983ff",
+        stat_font="Consolas",
+    ),
+
+    # 10. Blood & Chrome - black and red
+    "Blood & Chrome": Theme(
+        bg="#0a0505", hdr="#0f0808", border="#4a1a1a",
+        hov="#1f0f0f", btn="#2a1414", btn_h="#351c1c",
+        accent="#ff3a3a", ok="#ff3a3a",
+        txt="#ffd7d7", txt2="#b36b6b", txt3="#ff9e9e",
+        warn="#ff8c42", danger="#ff1a1a",
+        up_col="#ff5a5a", dn_col="#ff9090",
+        stat_font="Consolas",
+    ),
+
+    # 11. Dark Violet - dark purple with pink accents
+    "Dark Violet": Theme(
+        bg="#130712", hdr="#0e050d", border="#3a1f3a",
+        hov="#221022", btn="#2c152c", btn_h="#3a1f3a",
+        accent="#ff77ff", ok="#ff77ff",
+        txt="#ffe6ff", txt2="#d48fd4", txt3="#ffb8ff",
+        warn="#ffb347", danger="#ff5f9e",
+        up_col="#ff99ff", dn_col="#cc66ff",
+        stat_font="Consolas",
+    ),
+
+    # 12. Toxic Waste - black and neon green
+    "Toxic": Theme(
+        bg="#0a0f0a", hdr="#071007", border="#1f4a1f",
+        hov="#122012", btn="#1a2f1a", btn_h="#214021",
+        accent="#9eff4f", ok="#9eff4f",
+        txt="#e3ffcf", txt2="#7cb852", txt3="#b2ff7a",
+        warn="#ffd966", danger="#ff6b6b",
+        up_col="#b0ff70", dn_col="#4eff9e",
+        stat_font="Consolas",
+    ),
+
+    # 13. Electric Blue - deep black with bright electric blue
+    "Electric": Theme(
+        bg="#0a0d12", hdr="#070a0f", border="#1a3a5a",
+        hov="#101a24", btn="#182433", btn_h="#203c5c",
+        accent="#3aa8ff", ok="#3aa8ff",
+        txt="#d9f0ff", txt2="#6090c0", txt3="#9ac8ff",
+        warn="#ffb347", danger="#ff5f6d",
+        up_col="#3aa8ff", dn_col="#6cd4ff",
+        stat_font="Consolas",
+    ),
+
+    # 14. Neon Noir - black with pink and cyan
+    "Neon Noir": Theme(
+        bg="#0b0b14", hdr="#070710", border="#2a1f40",
+        hov="#151528", btn="#1d1d35", btn_h="#252545",
+        accent="#ff44aa", ok="#ff44aa",
+        txt="#f0e6ff", txt2="#a678b3", txt3="#d9b3ff",
+        warn="#ffaa44", danger="#ff4466",
+        up_col="#44ccff", dn_col="#ff44aa",
+        stat_font="Consolas",
+    ),
+
+    # 15. Amber Alert - black and amber/orange
+    "Amber Alert": Theme(
+        bg="#0f0c06", hdr="#0a0804", border="#4a3a1a",
+        hov="#1f1a0d", btn="#2f2616", btn_h="#3f3420",
+        accent="#ffb347", ok="#ffb347",
+        txt="#ffebc2", txt2="#cc9540", txt3="#ffcc80",
+        warn="#ff9500", danger="#ff4d4d",
+        up_col="#ffaa33", dn_col="#ffcc66",
+        stat_font="Consolas",
+    ),
+
+    # 16. Matrix - black and matrix green
+    "Matrix": Theme(
+        bg="#0c100c", hdr="#070a07", border="#1f4a1f",
+        hov="#142014", btn="#1c301c", btn_h="#244024",
+        accent="#3aff5a", ok="#3aff5a",
+        txt="#b3ffb3", txt2="#4f8a4f", txt3="#80ff80",
+        warn="#e6b800", danger="#ff4d4d",
+        up_col="#3aff5a", dn_col="#70ff70",
+        stat_font="Courier New",
+    ),
+
+    # 17. Deep Purple - rich purple with gold accents
+    "Deep Purple": Theme(
+        bg="#1a1020", hdr="#140c1a", border="#3f2a55",
+        hov="#2a1a35", btn="#322040", btn_h="#402a55",
+        accent="#ffd966", ok="#ffd966",
+        txt="#f0e0ff", txt2="#ad85c2", txt3="#d9b3ff",
+        warn="#ff9f4b", danger="#ff6b8b",
+        up_col="#bf7fff", dn_col="#ffd966",
+        stat_font="Consolas",
+    ),
+
+    # 18. Crimson - black and deep red
+    "Crimson": Theme(
+        bg="#140a0a", hdr="#0f0707", border="#4a1f1f",
+        hov="#241212", btn="#2f1a1a", btn_h="#3f2424",
+        accent="#ff5e5e", ok="#ff5e5e",
+        txt="#ffd6d6", txt2="#b36b6b", txt3="#ffa3a3",
+        warn="#ffaa33", danger="#ff2a2a",
+        up_col="#ff7a7a", dn_col="#ffaaaa",
+        stat_font="Consolas",
     ),
 }
 
