@@ -22,7 +22,6 @@ def _btn(parent, text, command, t, accent=False, danger=False, **kw):
         bg = "#3a2020"; fg = "#ff6b6b"; abg = "#4a2828"
     elif accent:
         bg = t.accent; abg = t.accent
-        # Pick text color based on accent luminance so it's always readable
         try:
             c = t.accent.lstrip("#")
             r, g, b = int(c[0:2],16), int(c[2:4],16), int(c[4:6],16)
@@ -37,22 +36,83 @@ def _btn(parent, text, command, t, accent=False, danger=False, **kw):
                      relief="flat", bd=0, cursor="hand2", **kw)
 
 
+def _outline_btn(parent, text, command, t, danger=False, **kw):
+    """Button with outline on hover — no layout shift."""
+    if danger:
+        nfg = "#ff6b6b"; nbg = t.btn; hbg = "#3a2020"; hfg = "#ff6b6b"
+        border_n = t.btn;    border_h = "#ff6b6b"
+    else:
+        nfg = t.txt2; nbg = t.btn; hbg = t.hov; hfg = t.txt
+        border_n = t.btn;    border_h = t.accent
+
+    btn = tk.Button(parent, text=text, command=command,
+                    bg=nbg, fg=nfg, activebackground=hbg, activeforeground=hfg,
+                    relief="flat", bd=0, cursor="hand2",
+                    highlightbackground=border_n, highlightthickness=1, **kw)
+
+    btn.bind("<Enter>", lambda e: btn.config(
+        bg=hbg, fg=hfg, highlightbackground=border_h))
+    btn.bind("<Leave>", lambda e: btn.config(
+        bg=nbg, fg=nfg, highlightbackground=border_n))
+    return btn
+
+
+def _col_stepper(parent, t, get_val, set_val, min_val=1, max_val=12):
+    """‹ N › stepper for column count."""
+    frame = tk.Frame(parent, bg=t.btn, highlightbackground=t.btn,
+                     highlightthickness=2)
+
+    def _dec():
+        v = max(min_val, get_val() - 1)
+        set_val(v); _refresh()
+    def _inc():
+        v = min(max_val, get_val() + 1)
+        set_val(v); _refresh()
+
+    prev_btn = tk.Button(frame, text="‹", command=_dec,
+                         bg=t.btn, fg=t.txt2, activebackground=t.hov,
+                         activeforeground=t.txt, relief="flat", bd=0,
+                         cursor="hand2", font=("Segoe UI", 11), padx=8, pady=3)
+    prev_btn.pack(side="left")
+
+    lbl = tk.Label(frame, text=str(get_val()),
+                   bg=t.btn, fg=t.txt, font=("Segoe UI", 10, "bold"),
+                   width=2, anchor="center")
+    lbl.pack(side="left")
+
+    next_btn = tk.Button(frame, text="›", command=_inc,
+                         bg=t.btn, fg=t.txt2, activebackground=t.hov,
+                         activeforeground=t.txt, relief="flat", bd=0,
+                         cursor="hand2", font=("Segoe UI", 11), padx=8, pady=3)
+    next_btn.pack(side="left")
+
+    def _hover_in(e):  frame.config(highlightbackground=t.accent)
+    def _hover_out(e): frame.config(highlightbackground=t.btn)
+    for w in (frame, prev_btn, lbl, next_btn):
+        w.bind("<Enter>", _hover_in)
+        w.bind("<Leave>", _hover_out)
+
+    def _refresh():
+        lbl.config(text=str(get_val()))
+
+    return frame
+
+
 def _preset_swatch_row(parent, t, current_name, on_select, bg=None):
-    """Render compact rows of preset swatches. All slots fixed width."""
     _bg     = bg or t.bg
     names   = list(PRESETS.keys())
-    PER_ROW = 6
-    SW_W, SW_H = 40, 26
-    COL_W   = 52   # fixed column width — label never pushes swatch around
+    PER_ROW = 5   # 25 themes ÷ 5 = 5 even rows
+    SW_W    = 46
+    SW_H    = 30
+    COL_W   = 58  # fixed width so all columns are identical
 
     for row_start in range(0, len(names), PER_ROW):
         row_frame = tk.Frame(parent, bg=_bg)
-        row_frame.pack(anchor="w", pady=(0, 2))
+        row_frame.pack(anchor="w", pady=(0, 4))
         for name in names[row_start:row_start + PER_ROW]:
             preset = PRESETS[name]
             is_sel = name == current_name
 
-            # Fixed-width column so every slot is the same size
             col = tk.Frame(row_frame, bg=_bg, width=COL_W)
             col.pack_propagate(False)
             col.pack(side="left")
@@ -63,15 +123,15 @@ def _preset_swatch_row(parent, t, current_name, on_select, bg=None):
                               cursor="hand2")
             swatch.place(relx=0.5, rely=0.0, anchor="n", y=2)
 
-            dot = tk.Frame(swatch, bg=preset.accent, width=8, height=3)
+            dot = tk.Frame(swatch, bg=preset.accent, width=10, height=3)
             dot.place(relx=0.5, rely=0.82, anchor="center")
 
             short = name if len(name) <= 9 else name[:8] + "…"
-            tk.Label(col, text=short, font=("Segoe UI", 6),
+            tk.Label(col, text=short, font=("Segoe UI", 7),
                      bg=_bg, fg=t.txt if is_sel else t.txt2,
                      anchor="center").place(relx=0.5, rely=1.0, anchor="s", y=-1)
 
-            col.config(height=SW_H + 16)
+            col.config(height=SW_H + 18)
             swatch.bind("<Button-1>", lambda e, n=name: on_select(n))
             dot.bind("<Button-1>",    lambda e, n=name: on_select(n))
 
@@ -91,7 +151,7 @@ class SettingsScreen:
         t = config.get_theme(mgr.data)
         sw = mgr.root.winfo_screenwidth()
         sh = mgr.root.winfo_screenheight()
-        PW, PH = 620, 560
+        PW, PH = 720, 560
         px, py = (sw - PW) // 2, (sh - PH) // 2
 
         # Backdrop
@@ -145,48 +205,74 @@ class SettingsScreen:
         tk.Label(hdr, text="Settings", font=("Segoe UI", 13, "bold"),
                  bg=t.hdr, fg=t.txt).pack(side="left", padx=20, pady=12)
 
-        # Close — tk.Label, zero system flash
         close_lbl = tk.Label(hdr, text="✕", font=("Segoe UI", 12),
                              bg=t.hdr, fg=t.txt2, cursor="hand2", padx=14, pady=10)
         close_lbl.pack(side="right")
-        close_lbl.bind("<Enter>",          lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
-        close_lbl.bind("<Leave>",          lambda e: close_lbl.config(bg=t.hdr,    fg=t.txt2))
+        close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
+        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
         close_lbl.bind("<ButtonRelease-1>", lambda e: self.close())
 
-        tk.Frame(self.win, bg=t.border, height=1).pack(fill="x")
+        # Accent line under header
+        tk.Frame(self.win, bg=t.accent, height=2).pack(fill="x")
 
-        # ── Tab bar — tk.Label per tab, zero system flash ───
-        tab_bar = tk.Frame(self.win, bg=t.hdr)
-        tab_bar.pack(fill="x")
-        for label, key in self.TABS:
+        # ── Body: sidebar + content ─────────────────────────
+        body = tk.Frame(self.win, bg=t.bg)
+        body.pack(fill="both", expand=True)
+
+        # ── Sidebar ─────────────────────────────────────────
+        sidebar = tk.Frame(body, bg=t.hdr, width=150)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+
+        tk.Frame(body, bg=t.border, width=1).pack(side="left", fill="y")
+
+        nav_items = [
+            ("🎨  Appearance", "appearance"),
+            ("🗂  Widgets",    "widgets"),
+            ("⚙  System",     "system"),
+        ]
+
+        for label, key in nav_items:
             is_active = key == self._tab
-            fg  = t.txt  if is_active else t.txt2
-            bg  = t.bg   if is_active else t.hdr
-            hbg = t.btn_h                           # hover bg for inactive
-            lbl = tk.Label(tab_bar, text=label,
-                           font=("Segoe UI", 9, "bold" if is_active else "normal"),
-                           bg=bg, fg=fg, cursor="hand2", padx=20, pady=10)
-            lbl.pack(side="left")
+            bg_nav  = t.bg     if is_active else t.hdr
+            fg_nav  = t.txt    if is_active else t.txt2
+            row = tk.Frame(sidebar, bg=bg_nav, cursor="hand2")
+            row.pack(fill="x")
+
+            # Accent bar on left for active
+            tk.Frame(row, bg=t.accent if is_active else bg_nav,
+                     width=3).pack(side="left", fill="y")
+
+            lbl = tk.Label(row, text=label,
+                           font=("Segoe UI", 10, "bold" if is_active else "normal"),
+                           bg=bg_nav, fg=fg_nav,
+                           cursor="hand2", anchor="w", padx=14, pady=12)
+            lbl.pack(fill="x")
+
             if not is_active:
-                lbl.bind("<Enter>", lambda e, l=lbl: l.config(bg=hbg, fg=t.txt))
-                lbl.bind("<Leave>", lambda e, l=lbl, b=bg, f=fg: l.config(bg=b, fg=f))
+                def _enter(e, r=row, l=lbl):
+                    r.config(bg=t.btn); l.config(bg=t.btn, fg=t.txt)
+                def _leave(e, r=row, l=lbl, b=bg_nav, f=fg_nav):
+                    r.config(bg=b); l.config(bg=b, fg=f)
+                row.bind("<Enter>", _enter)
+                lbl.bind("<Enter>", _enter)
+                row.bind("<Leave>", _leave)
+                lbl.bind("<Leave>", _leave)
+
+            row.bind("<ButtonRelease-1>", lambda e, k=key: self._switch(k))
             lbl.bind("<ButtonRelease-1>", lambda e, k=key: self._switch(k))
 
-        tk.Frame(self.win, bg=t.border, height=1).pack(fill="x")
+        # ── Scrollable content area ──────────────────────────
+        content = tk.Frame(body, bg=t.bg)
+        content.pack(side="left", fill="both", expand=True)
 
-        # ── Scrollable area with custom thin scrollbar ──────
-        outer = tk.Frame(self.win, bg=t.bg)
-        outer.pack(fill="both", expand=True)
-
-        self._canvas = tk.Canvas(outer, bg=t.bg, highlightthickness=0)
+        self._canvas = tk.Canvas(content, bg=t.bg, highlightthickness=0)
         self._canvas.pack(side="left", fill="both", expand=True)
 
-        # Custom scrollbar: just a canvas on the right
         SB_W = 6
-        self._sb_canvas = tk.Canvas(outer, width=SB_W, bg=t.hdr,
+        self._sb_canvas = tk.Canvas(content, width=SB_W, bg=t.hdr,
                                     highlightthickness=0)
         self._sb_canvas.pack(side="right", fill="y")
-        self._sb_thumb = None
 
         self._scroll_inner = tk.Frame(self._canvas, bg=t.bg)
         self._win_id = self._canvas.create_window(
@@ -194,14 +280,11 @@ class SettingsScreen:
 
         self._scroll_inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>",       self._on_canvas_configure)
-
-        # Mousewheel on every widget in the panel
         self.win.bind_all("<MouseWheel>", self._on_mousewheel)
 
-        # Scrollbar drag
-        self._sb_canvas.bind("<ButtonPress-1>",   self._sb_press)
-        self._sb_canvas.bind("<B1-Motion>",        self._sb_drag)
-        self._sb_canvas.bind("<ButtonRelease-1>",  self._sb_release)
+        self._sb_canvas.bind("<ButtonPress-1>",  self._sb_press)
+        self._sb_canvas.bind("<B1-Motion>",       self._sb_drag)
+        self._sb_canvas.bind("<ButtonRelease-1>", self._sb_release)
         self._sb_drag_y = None
 
         self._render_tab(t)
@@ -332,7 +415,7 @@ class SettingsScreen:
         tk.Label(resize_frame,
                  text="Drag edges/corners to resize widgets" if resize_on
                       else "Widgets are fixed size — drag header to move",
-                 font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(side="left", padx=(0,12))
+                 font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(side="left", padx=(0, 12))
         def _toggle_resize():
             new_val = not self.mgr.data.get("resize_enabled", True)
             self.mgr.data["resize_enabled"] = new_val
@@ -345,6 +428,25 @@ class SettingsScreen:
              _toggle_resize, t,
              accent=resize_on, padx=14, pady=6).pack(side="left")
 
+        self._section(p, t, "Default Columns (All Folders)")
+        gcol_frame = tk.Frame(p, bg=t.bg)
+        gcol_frame.pack(fill="x", padx=PAD, pady=(4, 12))
+        gf_row = tk.Frame(gcol_frame, bg=t.bg)
+        gf_row.pack(anchor="w")
+        tk.Label(gf_row, text="Apply to all folders at once:",
+                 font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(side="left", padx=(0,10))
+
+        _global_cols = [5]  # mutable default
+        def get_global(): return _global_cols[0]
+        def set_global(v):
+            _global_cols[0] = v
+            for g in self.mgr.data["groups"]:
+                g["cols"] = v
+                self.mgr.set_group_cols(g["id"], v)
+            config.save(self.mgr.data)
+        _col_stepper(gf_row, t, get_global, set_global,
+                     min_val=1, max_val=12).pack(side="left")
+
     # ── Widgets ────────────────────────────────────────────
 
     def _tab_widgets(self, t):
@@ -354,16 +456,55 @@ class SettingsScreen:
         sh = self.mgr.root.winfo_screenheight()
 
         self._section(p, t, "Add Widget")
-        add_frame = tk.Frame(p, bg=t.bg)
-        add_frame.pack(fill="x", padx=PAD, pady=(4, 12))
-        for label, cmd in [
-            ("+ App folder",   lambda: (self.close(), self.mgr.new_group_dialog())),
-            ("+ Stats+",       lambda: (self.close(), self.mgr.toggle_statsplus())),
-            ("+ Notes",        lambda: (self.close(), self.mgr.toggle_notes())),
-            ("+ Files widget", lambda: (self.close(), self.mgr.new_docs_dialog())),
-        ]:
-            _btn(add_frame, label, cmd, t, padx=10, pady=6).pack(
-                side="left", padx=3, pady=2)
+        add_grid = tk.Frame(p, bg=t.bg)
+        add_grid.pack(fill="x", padx=PAD, pady=(4, 12))
+
+        add_options = [
+            ("🗂", "App Folder",   "Group your apps",   lambda: (self.close(), self.mgr.new_group_dialog())),
+            ("📊", "Stats+",       "System metrics",    lambda: (self.close(), self.mgr.toggle_statsplus())),
+            ("📝", "Notes",        "Sticky notes",      lambda: (self.close(), self.mgr.toggle_notes())),
+            ("📁", "Files",        "Quick file access", lambda: (self.close(), self.mgr.new_docs_dialog())),
+            ("🎵", "Media",        "Now playing",       lambda: (self.close(), self.mgr.toggle_media())),
+        ]
+
+        for i, (icon, label, desc, cmd) in enumerate(add_options):
+            col = i % 3
+            row = i // 3
+            card = tk.Frame(add_grid, bg=t.btn,
+                            highlightbackground=t.border, highlightthickness=1,
+                            cursor="hand2")
+            card.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
+            inner = tk.Frame(card, bg=t.btn)
+            inner.pack(padx=8, pady=8)
+            tk.Label(inner, text=icon, font=("Segoe UI", 18),
+                     bg=t.btn, fg=t.txt).pack()
+            tk.Label(inner, text=label, font=("Segoe UI", 9, "bold"),
+                     bg=t.btn, fg=t.txt).pack(pady=(3,0))
+            tk.Label(inner, text=desc, font=("Segoe UI", 7),
+                     bg=t.btn, fg=t.txt2).pack()
+
+            def _enter(e, c=card, i=inner):
+                c.config(bg=t.hov, highlightbackground=t.accent)
+                def _set(w):
+                    try: w.config(bg=t.hov)
+                    except: pass
+                    for ch in w.winfo_children(): _set(ch)
+                _set(i)
+            def _leave(e, c=card, i=inner):
+                c.config(bg=t.btn, highlightbackground=t.border)
+                def _set(w):
+                    try: w.config(bg=t.btn)
+                    except: pass
+                    for ch in w.winfo_children(): _set(ch)
+                _set(i)
+
+            for w in [card, inner] + list(inner.winfo_children()):
+                w.bind("<Enter>",           lambda e, en=_enter: en(e))
+                w.bind("<Leave>",           lambda e, lv=_leave: lv(e))
+                w.bind("<ButtonRelease-1>", lambda e, c=cmd: c())
+
+        for col in range(3):
+            add_grid.columnconfigure(col, weight=1)
 
         self._section(p, t, "App Folders")
         for g in self.mgr.data["groups"]:
@@ -371,6 +512,7 @@ class SettingsScreen:
             if not gw: continue
             self._widget_row(p, t, g, gw, sw, sh)
 
+        # Stats
         # Stats+
         if self.mgr.statsplus_win:
             self._section(p, t, "Stats+")
@@ -389,49 +531,36 @@ class SettingsScreen:
                 if blk["id"] in self.mgr.docs_wins:
                     self._docs_row(p, t, blk, sw, sh)
 
-        # Media / Now Playing
-        if self.mgr.media_win:
-            self._section(p, t, "Media")
-            self._simple_widget_row(p, t, "🎵 Media",
-                                    lambda: (self.close(), self.mgr.remove_media()))
-
     def _widget_row(self, parent, t, g, gw, sw, sh):
-        frame = tk.Frame(parent, bg=t.btn, pady=2)
-        frame.pack(fill="x", padx=20, pady=3)
-        tk.Label(frame, text=f"📁  {g['name']}",
-                 font=("Segoe UI", 10, "bold"),
-                 bg=t.btn, fg=t.txt).pack(side="left", padx=12, pady=6)
-        bf = tk.Frame(frame, bg=t.btn)
-        bf.pack(side="right", padx=8)
+        row = tk.Frame(parent, bg=t.hov, pady=0)
+        row.pack(fill="x", padx=20, pady=3)
 
-        def center(w=gw):
-            cx = (sw - w.W) // 2; cy = (sh - w.H) // 2
-            w.win.geometry(f"+{cx}+{cy}")
-            w.group["x"] = cx; w.group["y"] = cy
-            config.save(self.mgr.data)
+        tk.Label(row, text="📁", font=("Segoe UI", 13),
+                 bg=t.hov, fg=t.txt).pack(side="left", padx=(12,4), pady=8)
+        tk.Label(row, text=g["name"], font=("Segoe UI", 10, "bold"),
+                 bg=t.hov, fg=t.txt).pack(side="left", pady=8)
 
-        _btn(bf, "✎ Rename", lambda g=g: self._rename_widget(g), t,
-             padx=8, pady=4).pack(side="left", padx=2)
-        _btn(bf, "⊕ Center", center, t,
-             padx=8, pady=4).pack(side="left", padx=2)
-        _btn(bf, "✕", lambda gid=g["id"]: (self.close(), self.mgr.delete_group(gid)),
-             t, danger=True, padx=8, pady=4).pack(side="left", padx=2)
+        ctrl = tk.Frame(row, bg=t.hov)
+        ctrl.pack(side="right", padx=12, pady=6)
 
-        # ── Column picker ───────────────────────────────────
-        cf = tk.Frame(parent, bg=t.hdr)
-        cf.pack(fill="x", padx=20, pady=(0, 2))
-        col_row = tk.Frame(cf, bg=t.hdr)
-        col_row.pack(fill="x", padx=8, pady=(6, 4))
-        tk.Label(col_row, text="Columns:", font=("Segoe UI", 8),
-                 bg=t.hdr, fg=t.txt2).pack(side="left", padx=(0, 6))
-        cur_cols = g.get("cols", 5)
-        for n in range(1, 13):
-            is_sel = cur_cols == n
-            def _set_cols(c=n, gid=g["id"]):
-                self.mgr.set_group_cols(gid, c)
-                self._rebuild()
-            _btn(col_row, str(n), _set_cols, t,
-                 accent=is_sel, padx=8, pady=3).pack(side="left", padx=1)
+        tk.Label(ctrl, text="cols", font=("Segoe UI", 8),
+                 bg=t.hov, fg=t.txt2).pack(side="left", padx=(0,4))
+
+        def get_cols(gid=g["id"]):
+            grp = next((x for x in self.mgr.data["groups"] if x["id"] == gid), g)
+            return grp.get("cols", 5)
+        def set_cols(v, gid=g["id"]):
+            self.mgr.set_group_cols(gid, v)
+            gw.redraw()
+
+        _col_stepper(ctrl, t, lambda: get_cols(), set_cols,
+                     min_val=1, max_val=12).pack(side="left", padx=(0,10))
+
+        _outline_btn(ctrl, "✎", lambda g=g: self._rename_widget(g), t,
+                     padx=8, pady=4).pack(side="left", padx=3)
+        _outline_btn(ctrl, "✕",
+                     lambda gid=g["id"]: (self.close(), self.mgr.delete_group(gid)),
+                     t, danger=True, padx=8, pady=4).pack(side="left", padx=3)
 
         # ── Per-widget preset override ──────────────────────
         tf = tk.Frame(parent, bg=t.hdr)
@@ -450,6 +579,7 @@ class SettingsScreen:
             if w: w.redraw()
             self._rebuild()
 
+        # Determine currently selected override preset name
         ov = g.get("theme_override") or {}
         cur_ov = ov.get("__preset__", "__global__")
 
@@ -496,41 +626,41 @@ class SettingsScreen:
              ).pack(side="right", padx=8)
 
     def _statsplus_row(self, parent, t, sw, sh):
-        frame = tk.Frame(parent, bg=t.btn, pady=2)
+        frame = tk.Frame(parent, bg=t.hov, pady=0)
         frame.pack(fill="x", padx=20, pady=3)
-        tk.Label(frame, text="📊 Stats+", font=("Segoe UI", 10, "bold"),
-                 bg=t.btn, fg=t.txt).pack(side="left", padx=12, pady=6)
-        _btn(frame, "✕ Remove",
-             lambda: (self.close(), self.mgr.remove_statsplus()),
-             t, danger=True, padx=8, pady=4).pack(side="right", padx=8)
+        tk.Label(frame, text="📊", font=("Segoe UI", 13),
+                 bg=t.hov, fg=t.txt).pack(side="left", padx=(12,4), pady=8)
+        tk.Label(frame, text="Stats+", font=("Segoe UI", 10, "bold"),
+                 bg=t.hov, fg=t.txt).pack(side="left", pady=8)
 
-        cf = tk.Frame(parent, bg=t.hdr)
-        cf.pack(fill="x", padx=20, pady=(0, 6))
+        ctrl = tk.Frame(frame, bg=t.hov)
+        ctrl.pack(side="right", padx=12, pady=6)
 
-        # ── Columns (width) control ──────────────────────────
-        tk.Label(cf, text="Columns:", font=("Segoe UI", 8),
-                 bg=t.hdr, fg=t.txt2).pack(anchor="w", padx=8, pady=(6, 2))
-        col_f = tk.Frame(cf, bg=t.hdr)
-        col_f.pack(fill="x", padx=8, pady=(0, 4))
         blk = self.mgr.data.setdefault("statsplus", {})
         from statsplus_widget import MIN_COLS, MAX_COLS, DEF_COLS
-        cur_cols = blk.get("cols", DEF_COLS)
-        for n in range(MIN_COLS, MAX_COLS + 1):
-            is_sel = cur_cols == n
-            def set_cols(c=n):
-                if self.mgr.statsplus_win:
-                    self.mgr.statsplus_win.set_cols(c)
-                self._rebuild()
-            _btn(col_f, str(n), set_cols, t, accent=is_sel,
-                 padx=14, pady=4).pack(side="left", padx=2)
+        tk.Label(ctrl, text="cols", font=("Segoe UI", 8),
+                 bg=t.hov, fg=t.txt2).pack(side="left", padx=(0,4))
+        def get_sp_cols(): return blk.get("cols", DEF_COLS)
+        def set_sp_cols(v):
+            if self.mgr.statsplus_win:
+                self.mgr.statsplus_win.set_cols(v)
+        _col_stepper(ctrl, t, get_sp_cols, set_sp_cols,
+                     min_val=MIN_COLS, max_val=MAX_COLS).pack(side="left", padx=(0,10))
 
-        # ── Metric toggles ───────────────────────────────────
+        _outline_btn(ctrl, "✕ Remove",
+                     lambda: (self.close(), self.mgr.remove_statsplus()),
+                     t, danger=True, padx=8, pady=4).pack(side="left", padx=3)
+
+        # Metric toggles
+        cf = tk.Frame(parent, bg=t.hdr)
+        cf.pack(fill="x", padx=20, pady=(0, 6))
         tk.Label(cf, text="Visible metrics:", font=("Segoe UI", 8),
-                 bg=t.hdr, fg=t.txt2).pack(anchor="w", padx=8, pady=(4, 2))
+                 bg=t.hdr, fg=t.txt2).pack(anchor="w", padx=8, pady=(6, 2))
         mf = tk.Frame(cf, bg=t.hdr)
         mf.pack(fill="x", padx=8, pady=(0, 6))
 
-        active = blk.setdefault("metrics", ["cpu_pct", "cpu_temp", "ram_pct",
+        blk2 = self.mgr.data.setdefault("statsplus", {})
+        active = blk2.setdefault("metrics", ["cpu_pct", "cpu_temp", "ram_pct",
                                             "gpu_pct", "gpu_temp"])
         from statsplus_widget import ALL_METRICS
         for key, label, *_ in ALL_METRICS:
@@ -554,30 +684,27 @@ class SettingsScreen:
                  bg=t.btn, fg=t.txt).pack(side="left", padx=12, pady=6)
         bf = tk.Frame(frame, bg=t.btn)
         bf.pack(side="right", padx=8)
-        _btn(bf, "✎ Rename",
+        _outline_btn(bf, "✎",
              lambda b=blk: (self.mgr.rename_docs(b), self._rebuild()),
-             t, padx=8, pady=4).pack(side="left", padx=2)
-        _btn(bf, "✕",
+             t, padx=8, pady=4).pack(side="left", padx=3)
+        _outline_btn(bf, "✕",
              lambda did=blk["id"]: (self.close(), self.mgr.delete_docs(did)),
-             t, danger=True, padx=8, pady=4).pack(side="left", padx=2)
+             t, danger=True, padx=8, pady=4).pack(side="left", padx=3)
 
-        # Column picker
-        col_frame = tk.Frame(parent, bg=t.hdr)
-        col_frame.pack(fill="x", padx=20, pady=(0, 2))
-        col_row = tk.Frame(col_frame, bg=t.hdr)
-        col_row.pack(fill="x", padx=8, pady=(6, 4))
-        tk.Label(col_row, text="Columns:", font=("Segoe UI", 8),
-                 bg=t.hdr, fg=t.txt2).pack(side="left", padx=(0, 6))
-        cur_cols = blk.get("cols", 3)
-        for n in range(1, 9):
-            is_sel = cur_cols == n
-            def _set_dcols(c=n, did=blk["id"]):
-                self.mgr.set_docs_cols(did, c)
-                self._rebuild()
-            _btn(col_row, str(n), _set_dcols, t,
-                 accent=is_sel, padx=8, pady=3).pack(side="left", padx=1)
+        # ── Cols stepper inline in row ──────────────────────
+        tk.Label(frame, text="cols", font=("Segoe UI", 8),
+                 bg=t.btn, fg=t.txt2).pack(side="right", padx=(0,4))
 
-        # Per-widget preset override
+        def get_dcols(did=blk["id"]):
+            b = next((x for x in self.mgr.data.get("docs_widgets",[]) if x["id"]==did), blk)
+            return b.get("cols", 3)
+        def set_dcols(v, did=blk["id"]):
+            self.mgr.set_docs_cols(did, v)
+
+        _col_stepper(frame, t, lambda: get_dcols(), set_dcols,
+                     min_val=1, max_val=8).pack(side="right", padx=(0,8))
+
+        # ── Per-widget preset override ──────────────────────
         cf = tk.Frame(parent, bg=t.hdr)
         cf.pack(fill="x", padx=20, pady=(0, 6))
 
@@ -648,12 +775,12 @@ class SettingsScreen:
 
     def _section(self, parent, t, title):
         bg = parent.cget("bg")
-        f = tk.Frame(parent, bg=bg)
-        f.pack(fill="x", padx=20, pady=(14, 2))
-        tk.Label(f, text=title, font=("Segoe UI", 10, "bold"),
-                 bg=bg, fg=t.txt).pack(side="left")
+        f  = tk.Frame(parent, bg=bg)
+        f.pack(fill="x", padx=16, pady=(14, 4))
+        tk.Label(f, text=title.upper(), font=("Segoe UI", 8, "bold"),
+                 bg=bg, fg=t.txt2).pack(side="left")
         tk.Frame(f, bg=t.border, height=1).pack(
-            side="left", fill="x", expand=True, padx=(10, 0), pady=5)
+            side="left", fill="x", expand=True, padx=(10, 0), pady=6)
 
     def _rename_widget(self, g: dict) -> None:
         self.mgr.rename_group(g)

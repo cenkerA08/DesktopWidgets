@@ -173,8 +173,8 @@ class BaseWidget:
         t  = self._theme()
         r  = config.get_corner_radius(self.mgr.data)
 
-        # Background (rounded or flat)
-        _rounded_rect(self.cv, 0, 0, self.W, self.H,
+        # Background (rounded or flat) — inset 1px so border shows on all sides
+        _rounded_rect(self.cv, 1, 1, self.W - 1, self.H - 1,
                       r, fill=t.bg, outline=t.border, width=1)
 
         # Header band — clip to top corners only
@@ -189,7 +189,7 @@ class BaseWidget:
             self.cv.create_rectangle(0, 0, self.W, HDR_H,
                                      fill=t.hdr, outline="")
 
-        self.cv.create_line(0, HDR_H, self.W, HDR_H, fill=t.border, width=1)
+        self.cv.create_line(0, HDR_H, self.W, HDR_H, fill=t.accent, width=2)
 
         # Collapse button
         arrow = "▶" if self._collapsed else "▼"

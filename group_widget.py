@@ -23,6 +23,54 @@ try:
 except ImportError:
     DND_OK = False
 
+try:
+    from PIL import Image, ImageTk, ImageDraw
+    PIL_OK = True
+except ImportError:
+    PIL_OK = False
+
+# ── Tile constants ─────────────────────────────────────────
+TILE_PAD = 6    # padding inside each tile
+TILE_R   = 8    # tile corner radius
+TILE_GAP = 4    # gap between tiles — widget bg shows through as natural separator
+
+
+def _hex_rgb(c: str) -> tuple:
+    c = c.lstrip("#")
+    return (int(c[0:2],16), int(c[2:4],16), int(c[4:6],16))
+
+
+def _recycle(path: str) -> None:
+    """Send a file to the recycle bin silently."""
+    try:
+        import send2trash
+        send2trash.send2trash(path)
+        return
+    except ImportError:
+        pass
+    try:
+        import ctypes
+        # SHFileOperation with FO_DELETE + FOF_ALLOWUNDO = recycle bin
+        class SHFILEOPSTRUCT(ctypes.Structure):
+            _fields_ = [
+                ("hwnd",   ctypes.c_void_p),
+                ("wFunc",  ctypes.c_uint),
+                ("pFrom",  ctypes.c_wchar_p),
+                ("pTo",    ctypes.c_wchar_p),
+                ("fFlags", ctypes.c_ushort),
+                ("fAnyOp", ctypes.c_bool),
+                ("hName",  ctypes.c_void_p),
+                ("szProg", ctypes.c_wchar_p),
+                ("spare",  ctypes.c_void_p),
+            ]
+        op = SHFILEOPSTRUCT()
+        op.wFunc  = 3          # FO_DELETE
+        op.pFrom  = path + "\0\0"
+        op.fFlags = 0x0040 | 0x0010  # FOF_ALLOWUNDO | FOF_NOCONFIRMATION
+        ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+    except Exception:
+        pass
+
 
 class GroupWidget(BaseWidget):
     MIN_W = 80
@@ -99,21 +147,21 @@ class GroupWidget(BaseWidget):
 
     def _draw(self) -> None:
         self._spots.clear(); self._refs.clear()
-        t = self._theme()
+        t    = self._theme()
         ww, wh = self.W, self.H
         apps = self.group["apps"]
-        gid = self.group["id"]
+        gid  = self.group["id"]
 
-        # Header title
+        # ── Header ────────────────────────────────────────
+        # Title centred
         self.cv.create_text(ww // 2, HDR_H // 2,
             text=self.group["name"],
             font=("Segoe UI", 11, "bold"), fill=t.txt, anchor="center")
 
-        # + button
-        self.cv.create_rectangle(ww - HDR_H, 0, ww, HDR_H,
-            fill="", outline="", tags="add_btn")
+        # + button — top right, same hit zone as before
+        plus_hov = False
         self.cv.create_text(ww - HDR_H // 2, HDR_H // 2, text="+",
-            font=("Segoe UI", 14, "bold"), fill=t.txt2, anchor="center",
+            font=("Segoe UI", 15, "bold"), fill=t.txt2, anchor="center",
             tags="add_btn")
         self._spots.append({
             "x1": ww - HDR_H, "y1": 0, "x2": ww, "y2": HDR_H,
@@ -123,63 +171,103 @@ class GroupWidget(BaseWidget):
         if self._collapsed:
             return
 
-        # Empty hint
+        # ── Empty hint ────────────────────────────────────
         if not apps:
             hint = "Drop .exe / .lnk here" if DND_OK else "Click + to add apps"
             self.cv.create_text(ww // 2, HDR_H + (wh - HDR_H) // 2,
                 text=hint, font=("Segoe UI", 9),
                 fill=t.txt2, anchor="center", justify="center")
+            return
 
-        # Pass 1: cell backgrounds + drag indicators
+        # ── Tile layout ───────────────────────────────────
+        cols   = self.cols
+        cell_w = _th.CELL_W
+        cell_h = _th.CELL_H
+        icon_sz = _th.ICON_SZ
+
         for i, app in enumerate(apps):
-            col = i % self.cols; row = i // self.cols
-            ax = _th.PAD + col * _th.CELL_W; ay = HDR_H + _th.PAD + row * _th.CELL_H
-            if i == self._hov and self._drag_idx is None:
-                self.cv.create_rectangle(ax+2, ay+2, ax+_th.CELL_W-2, ay+_th.CELL_H-2,
-                    fill=t.btn_h, outline=t.accent, width=2)
-            if i == self._drag_idx:
-                self.cv.create_rectangle(ax+2, ay+2, ax+_th.CELL_W-2, ay+_th.CELL_H-2,
-                    fill=t.hov, outline=t.accent, width=2)
-            if (i == self._drag_over and self._drag_idx is not None
-                    and i != self._drag_idx):
-                self.cv.create_line(ax, ay+2, ax, ay+_th.CELL_H-2,
+            col = i % cols; row = i // cols
+            ax  = _th.PAD + col * cell_w
+            ay  = HDR_H + _th.PAD + row * cell_h
+            cx  = ax + cell_w // 2
+            is_hov  = (i == self._hov and self._drag_idx is None)
+            is_drag = (i == self._drag_idx)
+            is_over = (i == self._drag_over and self._drag_idx is not None
+                       and i != self._drag_idx)
+
+            # Tile background — PIL for smooth rounded corners
+            if PIL_OK:
+                S  = 2
+                tw, th = cell_w - TILE_GAP, cell_h - TILE_GAP
+                img = Image.new("RGBA", (tw*S, th*S), (0,0,0,0))
+                d   = ImageDraw.Draw(img)
+                if is_hov or is_drag:
+                    fill  = tuple(list(_hex_rgb(t.hov)) + [255])
+                    outl  = tuple(list(_hex_rgb(t.accent)) + [255])
+                    bw    = 3*S   # thick enough to see clearly
+                    ins   = bw // 2 + 1
+                    d.rounded_rectangle([ins, ins, tw*S-1-ins, th*S-1-ins],
+                                         radius=TILE_R*S,
+                                         fill=fill, outline=outl, width=bw)
+                else:
+                    fill = tuple(list(_hex_rgb(t.btn_h)) + [255])
+                    d.rounded_rectangle([2, 2, tw*S-3, th*S-3],
+                                         radius=TILE_R*S,
+                                         fill=fill, outline=None)
+                photo = ImageTk.PhotoImage(img.resize((tw, th), Image.LANCZOS))
+                self._refs.append(photo)
+                self.cv.create_image(ax + TILE_GAP//2, ay + TILE_GAP//2,
+                                     image=photo, anchor="nw")
+            else:
+                # Fallback plain rectangle
+                fill = t.btn_h if is_hov else t.btn
+                outl = t.accent if (is_hov or is_drag) else t.border
+                self.cv.create_rectangle(ax+2, ay+2,
+                    ax+cell_w-2, ay+cell_h-2,
+                    fill=fill, outline=outl, width=2 if is_hov else 1)
+
+            # Drop target indicator
+            if is_over:
+                self.cv.create_line(ax+2, ay+2, ax+2, ay+cell_h-2,
                     fill=t.accent, width=3)
 
-        # Pass 2: icons + labels
-        for i, app in enumerate(apps):
-            col = i % self.cols; row = i // self.cols
-            ax = _th.PAD + col * _th.CELL_W; ay = HDR_H + _th.PAD + row * _th.CELL_H
-            cx = ax + _th.CELL_W // 2
-            photo = get_icon(app["path"], _th.ICON_SZ)
+            # Icon
+            icon_y = ay + TILE_PAD + icon_sz // 2 + 2
+            photo  = get_icon(app["path"], icon_sz)
             if photo:
                 self._refs.append(photo)
-                self.cv.create_image(cx, ay + _th.ICON_SZ // 2 + 4,
-                    image=photo, anchor="center", tags="icon")
+                self.cv.create_image(cx, icon_y, image=photo, anchor="center")
             else:
-                self.cv.create_rectangle(cx-_th.ICON_SZ//2, ay+4,
-                    cx+_th.ICON_SZ//2, ay+4+_th.ICON_SZ, fill=t.accent, outline="",
-                    tags="icon")
-                self.cv.create_text(cx, ay+4+_th.ICON_SZ//2,
+                r = icon_sz // 2
+                self.cv.create_rectangle(cx-r, icon_y-r, cx+r, icon_y+r,
+                    fill=t.accent, outline="")
+                self.cv.create_text(cx, icon_y,
                     text=app["name"][0].upper() if app["name"] else "?",
-                    font=("Segoe UI", 18, "bold"), fill="white", tags="icon")
-            self.cv.create_text(cx, ay+_th.ICON_SZ+10,
-                text=clip(app["name"], 10), font=("Segoe UI", 8),
-                fill=t.txt3, anchor="n", width=_th.CELL_W-6, tags="label")
+                    font=("Segoe UI", 18, "bold"), fill="white", anchor="center")
+
+            # Label
+            lbl_y = ay + cell_h - 14
+            self.cv.create_text(cx, lbl_y,
+                text=clip(app["name"], 10),
+                font=("Segoe UI", 8),
+                fill=t.txt if is_hov else t.txt2,
+                anchor="center", width=cell_w - 8)
+
             p, n = app["path"], app["name"]
             self._spots.append({
-                "x1": ax, "y1": ay, "x2": ax+_th.CELL_W, "y2": ay+_th.CELL_H, "idx": i,
+                "x1": ax, "y1": ay, "x2": ax+cell_w, "y2": ay+cell_h, "idx": i,
                 "dbl":   lambda pa=p: launch_app(pa),
                 "right": lambda pa=p, na=n, ga=gid: self.mgr.app_ctx(pa, na, ga),
             })
 
-        # Cross-widget drag hint strip at bottom of source widget
+        # Cross-widget drag hint
         if self._drag_cross and self._drag_idx is not None:
             apps_list = self.group["apps"]
             if self._drag_idx < len(apps_list):
                 dname = clip(apps_list[self._drag_idx]["name"], 14)
-                self.cv.create_rectangle(0, self.H - 20, self.W, self.H,
+                self.cv.create_rectangle(0, self.H-20, self.W, self.H,
                     fill=t.hov, outline="")
-                self.cv.create_text(self.W // 2, self.H - 10,
+                self.cv.create_text(self.W//2, self.H-10,
                     text=f"↗  Dragging '{dname}' out …",
                     font=("Segoe UI", 7), fill=t.txt2, anchor="center")
 
@@ -324,14 +412,17 @@ class GroupWidget(BaseWidget):
     def _on_drop(self, event) -> None:
         try: paths = self.win.tk.splitlist(event.data)
         except: paths = [event.data]
-        resolved = []
+        resolved  = []
+        lnk_paths = {}   # resolved_path → original .lnk path
         for p in paths:
             p = p.strip("{}").strip()
             if not p: continue
             ext = os.path.splitext(p)[1].lower()
             if ext == ".lnk":
                 r = resolve_lnk(p)
-                if r: p = r
+                if r:
+                    lnk_paths[r] = p   # remember original for recycling
+                    p = r
                 else: continue
             elif ext == ".url":
                 r = resolve_url(p)
@@ -345,9 +436,11 @@ class GroupWidget(BaseWidget):
         for path in resolved:
             if path in existing: continue
             default = os.path.splitext(os.path.basename(path))[0]
+            self.mgr.lift_widgets()
             name = ask_string(self.mgr.root, "Add app",
                               f"Name for '{default}':", initial=default,
                               theme=self._theme())
+            self.mgr.root.after(100, self.mgr.push_widgets)
             if name:
                 entry = {"name": name.strip(), "path": path}
                 if path in config.URL_APPS:
@@ -356,6 +449,9 @@ class GroupWidget(BaseWidget):
                 self.group["apps"].append(entry)
                 clear_icon_cache(path)
                 added += 1
+                # Recycle the original .lnk from desktop if it came from there
+                if path in lnk_paths:
+                    _recycle(lnk_paths[path])
         if added:
             self._refresh_size()
             config.save(self.mgr.data)
@@ -392,15 +488,17 @@ class GroupWidget(BaseWidget):
         Called by the native WM_DROPFILES handler (admin-mode DnD fallback).
         Mirrors the logic of _on_drop but receives a plain list of path strings.
         """
-        resolved = []
+        resolved  = []
+        lnk_paths = {}
         for p in paths:
             p = p.strip()
-            if not p:
-                continue
+            if not p: continue
             ext = os.path.splitext(p)[1].lower()
             if ext == ".lnk":
                 r = resolve_lnk(p)
-                if r: p = r
+                if r:
+                    lnk_paths[r] = p
+                    p = r
                 else: continue
             elif ext == ".url":
                 r = resolve_url(p)
@@ -410,13 +508,11 @@ class GroupWidget(BaseWidget):
                 resolved.append(p)
             elif p.lower().endswith(".exe") and os.path.exists(p):
                 resolved.append(p)
-        if not resolved:
-            return
+        if not resolved: return
         existing = {a["path"] for a in self.group["apps"]}
         added = 0
         for path in resolved:
-            if path in existing:
-                continue
+            if path in existing: continue
             default = os.path.splitext(os.path.basename(path))[0]
             name = ask_string(self.mgr.root, "Add app",
                               f"Name for '{default}':", initial=default,
@@ -429,6 +525,8 @@ class GroupWidget(BaseWidget):
                 self.group["apps"].append(entry)
                 clear_icon_cache(path)
                 added += 1
+                if path in lnk_paths:
+                    _recycle(lnk_paths[path])
         if added:
             self._refresh_size()
             config.save(self.mgr.data)

@@ -35,6 +35,13 @@ except ImportError:
     TRAY_OK = False
 
 
+def _all_children(widget):
+    """Recursively yield all child widgets."""
+    for child in widget.winfo_children():
+        yield child
+        yield from _all_children(child)
+
+
 class Manager:
     def __init__(self) -> None:
         self.data = config.load()
@@ -260,6 +267,43 @@ class Manager:
 
     # ── App management ─────────────────────────────────────
 
+    def lift_widgets(self) -> None:
+        """Temporarily bring all widgets to front (before showing a dialog)."""
+        for w in list(self.wins.values()) + \
+                 list(self.docs_wins.values()) + \
+                 [self.statsplus_win, self.notes_win, self.media_win,
+                  self.tray_bar]:
+            if w is None: continue
+            try:
+                win = w.win if hasattr(w, 'win') else None
+                if win: win.attributes("-topmost", True); win.lift()
+            except Exception:
+                pass
+
+    def push_widgets(self) -> None:
+        """Push all widgets back to desktop level after a dialog closes."""
+        for w in list(self.wins.values()) + \
+                 list(self.docs_wins.values()) + \
+                 [self.statsplus_win, self.notes_win, self.media_win,
+                  self.tray_bar]:
+            if w is None: continue
+            try:
+                win = w.win if hasattr(w, 'win') else None
+                if win:
+                    win.attributes("-topmost", False)
+                    push_desktop(win.winfo_id())
+            except Exception:
+                pass
+
+
+    def _ask(self, fn, *args, **kwargs):
+        """Wrap ask_string/ask_confirm with widget lift/push."""
+        self.lift_widgets()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            self.root.after(100, self.push_widgets)
+
     def add_app(self, gid: int) -> None:
         for gw in self.wins.values():
             try: gw.win.withdraw()
@@ -273,7 +317,7 @@ class Manager:
         if not path: return
         default = os.path.splitext(os.path.basename(path))[0]
         t = config.get_theme(self.data)
-        name = ask_string(self.root, "Add app", "App name:", initial=default, theme=t)
+        name = self._ask(ask_string, self.root, "Add app", "App name:", initial=default, theme=t)
         if not name: return
         group = next(g for g in self.data["groups"] if g["id"] == gid)
         group["apps"].append({"name": name.strip(), "path": path})
@@ -283,7 +327,7 @@ class Manager:
 
     def remove_app(self, path: str, gid: int) -> None:
         t = config.get_theme(self.data)
-        if not ask_confirm(self.root, "Remove app?\n(File will not be deleted.)", theme=t):
+        if not self._ask(ask_confirm, self.root, "Remove app?\n(File will not be deleted.)", theme=t):
             return
         group = next((g for g in self.data["groups"] if g["id"] == gid), None)
         if group:
@@ -291,6 +335,20 @@ class Manager:
         config.save(self.data)
         gw = self.wins.get(gid)
         if gw: gw._refresh_size(); gw.redraw()
+
+    def rename_app(self, path: str, gid: int) -> None:
+        group = next((g for g in self.data["groups"] if g["id"] == gid), None)
+        if not group: return
+        app = next((a for a in group["apps"] if a["path"] == path), None)
+        if not app: return
+        t    = config.get_theme(self.data)
+        name = self._ask(ask_string, self.root, "Rename",
+                         "New name:", initial=app["name"], theme=t)
+        if name and name.strip():
+            app["name"] = name.strip()
+            config.save(self.data)
+            gw = self.wins.get(gid)
+            if gw: gw.redraw()
 
     # ── Cross-widget drag helpers ──────────────────────────
 
@@ -353,7 +411,7 @@ class Manager:
 
     def new_group_dialog(self) -> None:
         t = config.get_theme(self.data)
-        name = ask_string(self.root, "New widget", "Name:", theme=t)
+        name = self._ask(ask_string, self.root, "New widget", "Name:", theme=t)
         if not name: return
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -379,7 +437,7 @@ class Manager:
         group = next((g for g in self.data["groups"] if g["id"] == gid), None)
         if not group: return
         t = config.get_theme(self.data)
-        if not ask_confirm(self.root, f"Delete widget '{group['name']}'?", theme=t):
+        if not self._ask(ask_confirm, self.root, f"Delete widget '{group['name']}'?", theme=t):
             return
         if gid in self.wins:
             self.wins[gid].destroy(); del self.wins[gid]
@@ -388,7 +446,7 @@ class Manager:
 
     def rename_group(self, group: dict) -> None:
         t = config.get_theme(self.data)
-        name = ask_string(self.root, "Rename", "New name:",
+        name = self._ask(ask_string, self.root, "Rename", "New name:",
                           initial=group["name"], theme=t)
         if name and name.strip():
             group["name"] = name.strip()
@@ -400,7 +458,7 @@ class Manager:
         group = next((g for g in self.data["groups"] if g["id"] == gid), None)
         if not group or not group["apps"]: return
         t = config.get_theme(self.data)
-        if not ask_confirm(self.root,
+        if not self._ask(ask_confirm, self.root,
             f"Remove all {len(group['apps'])} apps from '{group['name']}'?\n"
             "(Files will not be deleted.)", theme=t): return
         group["apps"] = []
@@ -497,7 +555,7 @@ class Manager:
 
     def new_docs_dialog(self) -> None:
         t = config.get_theme(self.data)
-        name = ask_string(self.root, "New files widget", "Name:", theme=t)
+        name = self._ask(ask_string, self.root, "New files widget", "Name:", theme=t)
         if not name: return
         blk = {
             "id":             self.data["next_id"],
@@ -519,7 +577,7 @@ class Manager:
         blk = next((b for b in self.data.get("docs_widgets", []) if b["id"] == did), None)
         if not blk: return
         t = config.get_theme(self.data)
-        if not ask_confirm(self.root, f"Delete files widget '{blk['name']}'?", theme=t):
+        if not self._ask(ask_confirm, self.root, f"Delete files widget '{blk['name']}'?", theme=t):
             return
         if did in self.docs_wins:
             self.docs_wins[did].destroy(); del self.docs_wins[did]
@@ -529,7 +587,7 @@ class Manager:
 
     def rename_docs(self, blk: dict) -> None:
         t = config.get_theme(self.data)
-        name = ask_string(self.root, "Rename", "New name:", initial=blk["name"], theme=t)
+        name = self._ask(ask_string, self.root, "Rename", "New name:", initial=blk["name"], theme=t)
         if name and name.strip():
             blk["name"] = name.strip()
             config.save(self.data)
@@ -544,21 +602,37 @@ class Manager:
         dlg.overrideredirect(True)
         dlg.attributes("-topmost", True)
         dlg.configure(bg=t.bg)
-        dw = 260
+        dw = 300
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
 
-        tk.Label(dlg, text="Add widget", font=("Segoe UI", 10, "bold"),
-                 bg=t.hdr, fg=t.txt, pady=8).pack(fill="x")
-        tk.Frame(dlg, bg=t.border, height=1).pack(fill="x")
+        # ── Header ─────────────────────────────────────────
+        hdr = tk.Frame(dlg, bg=t.hdr)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="Add Widget", font=("Segoe UI", 12, "bold"),
+                 bg=t.hdr, fg=t.txt, padx=16, pady=12).pack(side="left")
+        close_lbl = tk.Label(hdr, text="✕", font=("Segoe UI", 11),
+                             bg=t.hdr, fg=t.txt2, cursor="hand2", padx=14, pady=12)
+        close_lbl.pack(side="right", fill="y")
+        close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
+        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
+        close_lbl.bind("<ButtonRelease-1>", lambda e: dlg.destroy())
+        tk.Frame(dlg, bg=t.accent, height=2).pack(fill="x")
 
+        # ── Widget cards ───────────────────────────────────
         options = [
-            ("🗂  App folder",   "folder"),
-            ("📊  Stats+",       "statsplus"),
-            ("📝  Notes",        "notes"),
-            ("📁  Files widget", "docs"),
-            ("🎵  Media",        "media"),
+            ("🗂", "App Folder",   "Group your apps",        "folder"),
+            ("📊", "Stats+",       "System metrics",         "statsplus"),
+            ("📝", "Notes",        "Sticky notes",           "notes"),
+            ("📁", "Files",        "Quick file access",      "docs"),
+            ("🎵", "Media",        "Now playing",            "media"),
         ]
+
+        def is_on(key):
+            if key == "statsplus": return self.data.get("statsplus", {}).get("enabled", False)
+            if key == "notes":     return self.data.get("notes",     {}).get("enabled", False)
+            if key == "media":     return self.data.get("media",     {}).get("enabled", False)
+            return False
 
         def make_cmd(key):
             def cmd():
@@ -570,27 +644,83 @@ class Manager:
                 elif key == "media":     self.toggle_media()
             return cmd
 
-        def is_on(key):
-            if key == "statsplus": return self.data.get("statsplus", {}).get("enabled", False)
-            if key == "notes":     return self.data.get("notes",     {}).get("enabled", False)
-            if key == "media":     return self.data.get("media",     {}).get("enabled", False)
-            return False
+        grid = tk.Frame(dlg, bg=t.bg)
+        grid.pack(fill="x", padx=10, pady=10)
 
-        for label, key in options:
-            on     = is_on(key)
-            prefix = "✓  " if on else "    "
-            tk.Button(dlg, text=prefix + label, font=("Segoe UI", 10),
-                      bg=t.hov if on else t.btn, fg=t.txt,
-                      activebackground=t.hov, activeforeground=t.txt,
-                      relief="flat", bd=0, anchor="w", padx=16, pady=8,
-                      cursor="hand2", command=make_cmd(key)).pack(fill="x", padx=8, pady=2)
+        # 2-column grid — last item spans full width if odd count
+        for i, (icon, label, desc, key) in enumerate(options):
+            on = is_on(key)
+            col = i % 2
+            row = i // 2
 
-        tk.Frame(dlg, bg=t.border, height=1).pack(fill="x", pady=(4, 0))
-        tk.Button(dlg, text="Cancel", font=("Segoe UI", 9),
-                  bg=t.btn, fg=t.txt2,
-                  activebackground=t.hov, activeforeground=t.txt,
-                  relief="flat", bd=0, cursor="hand2",
-                  command=dlg.destroy).pack(fill="x", padx=8, pady=(4, 8))
+            card_bg  = t.hov    if on else t.btn
+            card_bdr = t.accent if on else t.border
+
+            card = tk.Frame(grid, bg=card_bg,
+                            highlightbackground=card_bdr, highlightthickness=1,
+                            cursor="hand2")
+
+            # Span full width for last odd item
+            if i == len(options) - 1 and len(options) % 2 == 1:
+                card.grid(row=row, column=0, columnspan=2,
+                          sticky="ew", padx=4, pady=4)
+                inner = tk.Frame(card, bg=card_bg)
+                inner.pack(fill="x", padx=10, pady=8)
+                tk.Label(inner, text=icon, font=("Segoe UI", 18),
+                         bg=card_bg, fg=t.txt).pack(side="left", padx=(0,8))
+                txt_f = tk.Frame(inner, bg=card_bg)
+                txt_f.pack(side="left")
+                tk.Label(txt_f, text=label, font=("Segoe UI", 10, "bold"),
+                         bg=card_bg, fg=t.txt, anchor="w").pack(anchor="w")
+                tk.Label(txt_f, text=desc, font=("Segoe UI", 8),
+                         bg=card_bg, fg=t.accent if on else t.txt2,
+                         anchor="w").pack(anchor="w")
+            else:
+                card.grid(row=row, column=col,
+                          sticky="nsew", padx=4, pady=4)
+                inner = tk.Frame(card, bg=card_bg)
+                inner.pack(fill="both", expand=True, padx=10, pady=10)
+                tk.Label(inner, text=icon, font=("Segoe UI", 22),
+                         bg=card_bg, fg=t.txt).pack()
+                tk.Label(inner, text=label, font=("Segoe UI", 10, "bold"),
+                         bg=card_bg, fg=t.txt).pack(pady=(4, 0))
+                tk.Label(inner, text="Active" if on else desc,
+                         font=("Segoe UI", 8),
+                         bg=card_bg, fg=t.accent if on else t.txt2).pack()
+
+            # Active dot
+            if on:
+                dot = tk.Frame(card, bg=t.accent, width=7, height=7)
+                dot.place(relx=1.0, rely=0.0, anchor="ne", x=-6, y=6)
+
+            # Hover effect
+            def _enter(e, c=card, bg=t.hov, bdr=t.accent):
+                c.config(bg=bg, highlightbackground=bdr)
+                for w in c.winfo_children():
+                    try: _set_bg(w, bg)
+                    except: pass
+            def _leave(e, c=card, bg=card_bg, bdr=card_bdr):
+                c.config(bg=bg, highlightbackground=bdr)
+                for w in c.winfo_children():
+                    try: _set_bg(w, bg)
+                    except: pass
+            def _set_bg(widget, bg):
+                widget.config(bg=bg)
+                for child in widget.winfo_children():
+                    try: _set_bg(child, bg)
+                    except: pass
+
+            cmd = make_cmd(key)
+            for w in _all_children(card):
+                w.bind("<Enter>",           lambda e, en=_enter: en(e))
+                w.bind("<Leave>",           lambda e, lv=_leave: lv(e))
+                w.bind("<ButtonRelease-1>", lambda e, c=cmd: c())
+            card.bind("<Enter>",           lambda e, en=_enter: en(e))
+            card.bind("<Leave>",           lambda e, lv=_leave: lv(e))
+            card.bind("<ButtonRelease-1>", lambda e, c=cmd: c())
+
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=1)
 
         dlg.update_idletasks()
         dh = dlg.winfo_reqheight()
@@ -628,7 +758,8 @@ class Manager:
         m = self._menu()
         m.add_command(label=f"▶  Launch {name}", command=lambda: launch_app(path))
         m.add_separator()
-        m.add_command(label="Remove", command=lambda: self.remove_app(path, gid))
+        m.add_command(label="✎  Rename",  command=lambda: self.rename_app(path, gid))
+        m.add_command(label="✕  Remove",  command=lambda: self.remove_app(path, gid))
         self.root.focus_force()
         try: m.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
         finally: m.grab_release()
