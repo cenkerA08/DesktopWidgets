@@ -194,11 +194,12 @@ class GroupWidget(BaseWidget):
     # ── Mouse overrides ────────────────────────────────────
 
     def _on_press_extra(self, e: tk.Event) -> None:
-        if self._mode in ("drag", "collapse_click", "resize"):
-            return
         s = self._hit(e.x, e.y)
+        # Header buttons (+ add) fire immediately on press, before mode is set
         if s and "click" in s and "idx" not in s:
             s["click"](); self._mode = ""; return
+        if self._mode in ("drag", "collapse_click", "resize"):
+            return
         if s and "idx" in s:
             self._mode = "reorder"
             self._drag_idx = None; self._drag_over = None

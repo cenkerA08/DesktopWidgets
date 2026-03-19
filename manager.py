@@ -541,21 +541,23 @@ class Manager:
     def show_add_picker(self) -> None:
         t = config.get_theme(self.data)
         dlg = tk.Toplevel(self.root)
-        dlg.overrideredirect(True); dlg.attributes("-topmost", True)
+        dlg.overrideredirect(True)
+        dlg.attributes("-topmost", True)
         dlg.configure(bg=t.bg)
         dw = 260
-        sw = self.root.winfo_screenwidth(); sh = self.root.winfo_screenheight()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
 
         tk.Label(dlg, text="Add widget", font=("Segoe UI", 10, "bold"),
                  bg=t.hdr, fg=t.txt, pady=8).pack(fill="x")
         tk.Frame(dlg, bg=t.border, height=1).pack(fill="x")
 
         options = [
-            ("🗂  App folder",       "folder"),
-            ("📊  Stats+",           "statsplus"),
-            ("📝  Notes",            "notes"),
-            ("📁  Files widget",     "docs"),
-            ("🎵  Media",            "media"),
+            ("🗂  App folder",   "folder"),
+            ("📊  Stats+",       "statsplus"),
+            ("📝  Notes",        "notes"),
+            ("📁  Files widget", "docs"),
+            ("🎵  Media",        "media"),
         ]
 
         def make_cmd(key):
@@ -575,7 +577,7 @@ class Manager:
             return False
 
         for label, key in options:
-            on = is_on(key)
+            on     = is_on(key)
             prefix = "✓  " if on else "    "
             tk.Button(dlg, text=prefix + label, font=("Segoe UI", 10),
                       bg=t.hov if on else t.btn, fg=t.txt,
@@ -594,16 +596,8 @@ class Manager:
         dh = dlg.winfo_reqheight()
         dlg.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
         dlg.bind("<Escape>", lambda e: dlg.destroy())
-        dlg.focus_force(); dlg.grab_set()
-
-        # Close when clicking outside the dialog
-        def _on_focus_out(e):
-            try:
-                if dlg.winfo_exists() and not str(e.widget).startswith(str(dlg)):
-                    dlg.destroy()
-            except Exception:
-                pass
-        dlg.bind("<FocusOut>", _on_focus_out)
+        dlg.focus_force()
+        dlg.grab_set()
 
     # ── Context menus ──────────────────────────────────────
 
