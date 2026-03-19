@@ -1,0 +1,42 @@
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+
+# ── Virtual environments ──────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# ── PyInstaller build output ──────────────────────────────
+build/
+dist/
+*.spec
+
+# ── User data (settings, widget positions) ────────────────
+# Don't share your personal config with the world
+data.json
+
+# ── Release zips ──────────────────────────────────────────
+*.zip
+
+# ── IDE / editor ──────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+
+# ── Windows ───────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Secrets ───────────────────────────────────────────────
+# Never commit tokens or keys
+.env
+secrets.py

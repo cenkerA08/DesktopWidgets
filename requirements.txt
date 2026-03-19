@@ -1,0 +1,6 @@
+pillow
+psutil
+pywin32
+winsdk
+wmi
+requests
