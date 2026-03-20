@@ -12,7 +12,7 @@ Requirements for --release:
 import os, sys, shutil, subprocess, textwrap, glob, zipfile, json, re
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-DIST_DIR    = os.path.join(PROJECT_DIR, "dist", "DesktopWidget")
+DIST_DIR    = os.path.join(PROJECT_DIR, "dist")
 BUILD_DIR   = os.path.join(PROJECT_DIR, "build")
 SPEC_FILE   = os.path.join(PROJECT_DIR, "DesktopWidget.spec")
 
@@ -21,8 +21,8 @@ SOURCE_FILES = [
     "version.py", "updater.py",
     "base_widget.py", "group_widget.py",
     "statsplus_widget.py", "notes_widget.py", "docs_widget.py",
-    "media_widget.py", "color_picker.py",
-    "focus_overlay.py", "settings_screen.py", "tray_bar.py",
+    "media_widget.py", "recent_widget.py", "color_picker.py",
+    "focus_overlay.py", "settings_screen.py", "welcome_screen.py", "changelog_screen.py", "tray_bar.py",
 ]
 
 
@@ -107,7 +107,9 @@ def write_spec(tcl_dir, tk_dir) -> None:
         "pyz = PYZ(a.pure)",
         "",
         "exe = EXE(",
-        "    pyz, a.scripts, [],",
+        "    pyz,",
+        "    a.scripts,",
+        "    [],",
         "    exclude_binaries=True,",
         "    name='DesktopWidget',",
         "    debug=False,",
@@ -119,7 +121,9 @@ def write_spec(tcl_dir, tk_dir) -> None:
         ")",
         "",
         "coll = COLLECT(",
-        "    exe, a.binaries, a.datas,",
+        "    exe,",
+        "    a.binaries,",
+        "    a.datas,",
         "    strip=False,",
         "    upx=True,",
         "    upx_exclude=[],",
@@ -157,16 +161,14 @@ def build() -> None:
 def make_zip(version: str) -> str:
     zip_name = f"DesktopWidget_v{version}.zip"
     zip_path = os.path.join(PROJECT_DIR, "dist", zip_name)
+    app_dir  = os.path.join(DIST_DIR, "DesktopWidget")
     print(f"\n── Zipping → {zip_name}")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        for root, dirs, files in os.walk(DIST_DIR):
-            for fname in files:
-                fpath  = os.path.join(root, fname)
-                arcname = os.path.join(
-                    "DesktopWidget",
-                    os.path.relpath(fpath, DIST_DIR)
-                )
-                z.write(fpath, arcname)
+        for root, dirs, files in os.walk(app_dir):
+            for file in files:
+                full = os.path.join(root, file)
+                arcname = os.path.relpath(full, os.path.dirname(app_dir))
+                z.write(full, arcname)
     size_mb = os.path.getsize(zip_path) / 1_048_576
     print(f"  {zip_path}  ({size_mb:.1f} MB)")
     return zip_path

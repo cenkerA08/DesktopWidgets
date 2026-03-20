@@ -117,6 +117,32 @@ def main() -> None:
     try:
         from manager import Manager
         app = Manager()
+
+        import json
+        appdata   = os.environ.get("APPDATA", os.path.expanduser("~"))
+        os.makedirs(os.path.join(appdata, "DesktopWidget"), exist_ok=True)
+
+        # ── Changelog (update) ────────────────────────────
+        from version import VERSION, CHANGELOG
+        ver_flag  = os.path.join(appdata, "DesktopWidget", "last_seen_version.json")
+        last_seen = ""
+        if os.path.exists(ver_flag):
+            try: last_seen = json.load(open(ver_flag)).get("version", "")
+            except: pass
+        if last_seen != VERSION:
+            json.dump({"version": VERSION}, open(ver_flag, "w"))
+            notes = CHANGELOG.get(VERSION, [])
+            if notes and last_seen:  # only show changelog if this is an UPDATE not first run
+                from changelog_screen import ChangelogScreen
+                ChangelogScreen(app, VERSION, notes)
+
+        # ── Welcome (first ever launch) ───────────────────
+        wel_flag = os.path.join(appdata, "DesktopWidget", "welcomed.json")
+        if not os.path.exists(wel_flag):
+            json.dump({"welcomed": True}, open(wel_flag, "w"))
+            from welcome_screen import WelcomeScreen
+            WelcomeScreen(app, on_done=lambda: None)
+
         app.run()
     except Exception:
         import traceback
