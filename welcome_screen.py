@@ -51,7 +51,7 @@ STEPS = [
         "icon":  "🎨",
         "title": "Make it yours",
         "body":  (
-            "Choose from 19 built-in themes to match\n"
+            "Choose from different built-in themes to match\n"
             "your wallpaper. Open Settings with the ⚙\n"
             "button to get started."
         ),

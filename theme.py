@@ -254,6 +254,17 @@ PRESETS: dict[str, Theme] = {
         up_col="#e8724a", dn_col="#4a7ae8",
         stat_font="Consolas",
     ),
+
+    # Abyss — pure black with deep red accents
+    "Abyss": Theme(
+        bg="#080808", hdr="#040404", border="#3a0808",
+        hov="#120404", btn="#180606", btn_h="#220808",
+        accent="#cc1111", ok="#cc1111",
+        txt="#f5e8e8", txt2="#7a3030", txt3="#d09090",
+        warn="#ff6600", danger="#ff0000",
+        up_col="#cc1111", dn_col="#880000",
+        stat_font="Consolas",
+    ),
 }
 
 # Module-level active theme (Manager will set this from saved data)
