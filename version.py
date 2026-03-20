@@ -11,7 +11,7 @@ GITHUB_REPO = "cenkerA08/DesktopWidgets"
 # What's new in each version — shown once on first launch after an update.
 # Add a new entry here every time you bump VERSION.
 CHANGELOG: dict[str, list[str]] = {
-    "1.0.0": [
+    "1.0.22": [
         "Initial release",
         "App folder widgets with drag & drop",
         "Stats+, Notes, Media and Files widgets",
