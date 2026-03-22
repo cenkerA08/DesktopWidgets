@@ -3,7 +3,7 @@ version.py — Single source of truth for the app version.
 Bump this before every release.
 """
 
-VERSION = "1.0.25"
+VERSION = "1.0.26"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"
@@ -28,5 +28,9 @@ CHANGELOG: dict[str, list[str]] = {
         "Hotfix: fixed broken widgets",
         "fixed: wrong buttons to add widgets"
     ],
+    "1.0.27": [
+        "fixed: Discord mishandling"
+    ],
+
 
 }

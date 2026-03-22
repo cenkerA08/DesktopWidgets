@@ -421,12 +421,64 @@ def _extract(path: str, size: int):
             r = _load_ico(ico, size)
             if r: return r
         return _letter_tile(path, size)
+    # Folders — use SHGetFileInfo to get the system folder icon
+    if os.path.isdir(path):
+        r = _shell_icon(path, size)
+        if r: return r
+        return _folder_tile(path, size)
     if WIN32_OK:
         r = _private_icon(path, size)
         if r: return r
         r = _extracticonex(path, size)
         if r: return r
     return _letter_tile(path, size)
+
+
+def _shell_icon(path: str, size: int):
+    """Extract icon via SHGetFileInfo — works for folders and any file type."""
+    try:
+        import ctypes, ctypes.wintypes
+        SHGFI_ICON      = 0x000000100
+        SHGFI_LARGEICON = 0x000000000
+        SHGFI_SMALLICON = 0x000000001
+
+        class SHFILEINFO(ctypes.Structure):
+            _fields_ = [
+                ("hIcon",         ctypes.wintypes.HICON),
+                ("iIcon",         ctypes.c_int),
+                ("dwAttributes",  ctypes.wintypes.DWORD),
+                ("szDisplayName", ctypes.c_wchar * 260),
+                ("szTypeName",    ctypes.c_wchar * 80),
+            ]
+
+        fi  = SHFILEINFO()
+        res = ctypes.windll.shell32.SHGetFileInfoW(
+            path, 0, ctypes.byref(fi), ctypes.sizeof(fi),
+            SHGFI_ICON | SHGFI_LARGEICON)
+        if not res or not fi.hIcon:
+            return None
+        img = _hicon_to_pil(fi.hIcon, 64, size)
+        ctypes.windll.user32.DestroyIcon(fi.hIcon)
+        return ImageTk.PhotoImage(img) if img else None
+    except Exception:
+        return None
+
+
+def _folder_tile(path: str, size: int):
+    """Fallback folder icon — yellow folder shape."""
+    if not PIL_OK: return None
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d   = ImageDraw.Draw(img)
+    # Folder body
+    d.rounded_rectangle([0, size//5, size-1, size-1],
+                         radius=max(4, size//8), fill="#e0a030")
+    # Folder tab (top left)
+    d.rounded_rectangle([0, size//8, size//2, size//4],
+                         radius=max(3, size//12), fill="#f0b840")
+    # Shine
+    d.rounded_rectangle([size//8, size//4, size*3//4, size*2//5],
+                         radius=max(2, size//16), fill="#f8c850")
+    return ImageTk.PhotoImage(img)
 
 def _hicon_to_pil(hicon, draw_size: int, out_size: int):
     try:
@@ -514,10 +566,19 @@ def launch_app(path: str) -> None:
         except Exception as e:
             tk.messagebox.showerror("Error", str(e))
         return
+    # .lnk files (UWP/Store apps, shortcuts) — always use os.startfile
+    if path.lower().endswith(".lnk"):
+        try: os.startfile(path)
+        except Exception as e:
+            tk.messagebox.showerror("Error", str(e))
+        return
     if not os.path.exists(path):
         tk.messagebox.showerror("Not found", f"File not found:\n{path}"); return
     try:
-        subprocess.Popen([path], cwd=os.path.dirname(path))
+        if os.path.isdir(path):
+            os.startfile(path)
+        else:
+            os.startfile(path)
     except Exception as e:
         tk.messagebox.showerror("Error", str(e))
 
@@ -530,6 +591,10 @@ def resolve_lnk(lnk_path: str) -> str | None:
         if t and os.path.exists(t):
             real = _resolve_updater(t, args)
             return real or t
+        # UWP/Store app — TargetPath is empty or a shell: URI
+        # Return the .lnk itself so we can launch it via os.startfile
+        if not t or t.lower().startswith("shell:") or not os.path.exists(t):
+            return lnk_path
     except: pass
     try:
         ps = (f'$sh=New-Object -ComObject WScript.Shell;'
@@ -542,19 +607,29 @@ def resolve_lnk(lnk_path: str) -> str | None:
             real = _resolve_updater(t)
             return real or t
     except: pass
-    return None
+    # Last resort — return the .lnk itself, os.startfile can launch it
+    return lnk_path
 
 def resolve_url(url_path: str) -> str | None:
     from config import URL_APPS
     try:
         with open(url_path, encoding="utf-8", errors="ignore") as f:
             raw = f.read()
-        url = ""; ico = ""
+        url = ""; ico = ""; app_id = ""
         for line in raw.splitlines():
             u = line.strip().upper()
-            if u.startswith("URL="): url = line.strip()[4:]
-            elif u.startswith("ICONFILE="): ico = line.strip()[9:].strip('"')
+            if u.startswith("URL="):             url    = line.strip()[4:]
+            elif u.startswith("ICONFILE="):      ico    = line.strip()[9:].strip('"')
+            elif u.startswith("APPLICATIONID="): app_id = line.strip()[14:].strip()
         if "," in ico: ico = ico.rsplit(",", 1)[0].strip()
+
+        # UWP/Store app shortcut — has ApplicationID, no real URL
+        if app_id and not url:
+            launch = f"shell:AppsFolder\\{app_id}"
+            URL_APPS[url_path] = {"launch": launch,
+                                  "icon_path": ico if os.path.exists(ico) else None}
+            return url_path
+
         if ico.lower().endswith(".exe") and os.path.exists(ico): return ico
         if url and "://" in url and not url.lower().startswith("http"):
             URL_APPS[url_path] = {"launch": url,
