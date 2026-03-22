@@ -3,7 +3,7 @@ version.py — Single source of truth for the app version.
 Bump this before every release.
 """
 
-VERSION = "1.0.24"
+VERSION = "1.0.25"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"
@@ -24,4 +24,9 @@ CHANGELOG: dict[str, list[str]] = {
         "Complete theme overhaul — more distinct and vibrant themes",
         "New themes: Ember, Void, Forest, Ocean, Rust, Mono, Parchment, Silver",
     ],
+    "1.0.26": [
+        "Hotfix: fixed broken widgets",
+        "fixed: wrong buttons to add widgets"
+    ],
+
 }
