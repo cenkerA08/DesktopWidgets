@@ -460,10 +460,9 @@ class SettingsScreen:
         add_grid.pack(fill="x", padx=PAD, pady=(4, 12))
 
         add_options = [
-            ("🗂", "App Folder",   "Group your apps",   lambda: (self.close(), self.mgr.new_group_dialog())),
+            ("🗂", "Organizer",    "Apps, files & folders", lambda: (self.close(), self.mgr.new_group_dialog())),
             ("📊", "Stats+",       "System metrics",    lambda: (self.close(), self.mgr.toggle_statsplus())),
             ("📝", "Notes",        "Sticky notes",      lambda: (self.close(), self.mgr.toggle_notes())),
-            ("📁", "Files",        "Quick file access", lambda: (self.close(), self.mgr.new_docs_dialog())),
             ("🎵", "Media",        "Now playing",       lambda: (self.close(), self.mgr.toggle_media())),
         ]
 
@@ -506,7 +505,7 @@ class SettingsScreen:
         for col in range(3):
             add_grid.columnconfigure(col, weight=1)
 
-        self._section(p, t, "App Folders")
+        self._section(p, t, "Organizers")
         for g in self.mgr.data["groups"]:
             gw = self.mgr.wins.get(g["id"])
             if not gw: continue

@@ -263,7 +263,6 @@ class BaseWidget:
             self.H = HDR_H
         else:
             self.H = self._full_h
-            # Clamp so expanding never pushes the bottom off screen
             sh = self.win.winfo_screenheight()
             ny = self._win_y()
             if ny + self.H + MARGIN > sh:

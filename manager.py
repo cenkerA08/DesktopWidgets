@@ -82,6 +82,7 @@ class Manager:
             try: self.media_win = MediaWidget(self)
             except Exception as e: print(f"[manager] media error: {e}")
 
+
         self.tray_bar = TrayBar(self)
 
         # System tray icon
@@ -308,16 +309,26 @@ class Manager:
         for gw in self.wins.values():
             try: gw.win.withdraw()
             except: pass
-        path = filedialog.askopenfilename(
-            title="Select .exe", parent=self.root,
-            filetypes=[("Executable", "*.exe"), ("All files", "*.*")])
+
+        t = config.get_theme(self.data)
+        # Ask user what type they want to add
+        choice = self._ask(ask_confirm, self.root,
+                           "What do you want to add?\n\nYes = File or App\nNo = Folder",
+                           theme=t)
+
+        if choice:
+            path = filedialog.askopenfilename(
+                title="Select file or app", parent=self.root,
+                filetypes=[("All files", "*.*"), ("Executable", "*.exe")])
+        else:
+            path = filedialog.askdirectory(title="Select folder", parent=self.root)
+
         for gw in self.wins.values():
             try: gw.win.deiconify(); push_desktop(gw.win.winfo_id())
             except: pass
         if not path: return
-        default = os.path.splitext(os.path.basename(path))[0]
-        t = config.get_theme(self.data)
-        name = self._ask(ask_string, self.root, "Add app", "App name:", initial=default, theme=t)
+        default = os.path.splitext(os.path.basename(path))[0] or os.path.basename(path)
+        name = self._ask(ask_string, self.root, "Add item", "Name:", initial=default, theme=t)
         if not name: return
         group = next(g for g in self.data["groups"] if g["id"] == gid)
         group["apps"].append({"name": name.strip(), "path": path})
@@ -411,7 +422,7 @@ class Manager:
 
     def new_group_dialog(self) -> None:
         t = config.get_theme(self.data)
-        name = self._ask(ask_string, self.root, "New widget", "Name:", theme=t)
+        name = self._ask(ask_string, self.root, "New organizer", "Name:", theme=t)
         if not name: return
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -569,6 +580,7 @@ class Manager:
         self.data.setdefault("media", {})["enabled"] = False
         config.save(self.data)
 
+
     # ── Docs widgets ───────────────────────────────────────
 
     def new_docs_dialog(self) -> None:
@@ -639,10 +651,9 @@ class Manager:
 
         # ── Widget cards ───────────────────────────────────
         options = [
-            ("🗂", "App Folder",   "Group your apps",        "folder"),
+            ("🗂", "Organizer",    "Apps, files & folders",  "folder"),
             ("📊", "Stats+",       "System metrics",         "statsplus"),
             ("📝", "Notes",        "Sticky notes",           "notes"),
-            ("📁", "Files",        "Quick file access",      "docs"),
             ("🎵", "Media",        "Now playing",            "media"),
         ]
 
@@ -658,7 +669,6 @@ class Manager:
                 if   key == "folder":    self.new_group_dialog()
                 elif key == "statsplus": self.toggle_statsplus()
                 elif key == "notes":     self.toggle_notes()
-                elif key == "docs":      self.new_docs_dialog()
                 elif key == "media":     self.toggle_media()
             return cmd
 
@@ -741,46 +751,41 @@ class Manager:
         grid.columnconfigure(1, weight=1)
 
         dlg.update_idletasks()
-        dh = dlg.winfo_reqheight()
-        dlg.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
+        dh  = dlg.winfo_reqheight()
+        px  = (sw - dw) // 2
+        py  = (sh - dh) // 2
+        dlg.geometry(f"{dw}x{dh}+{px}+{py}")
         dlg.bind("<Escape>", lambda e: dlg.destroy())
         dlg.focus_force()
         dlg.grab_set()
 
     # ── Context menus ──────────────────────────────────────
 
-    def _menu(self) -> tk.Menu:
+    def _menu(self):
+        from context_menu import ContextMenu
         t = config.get_theme(self.data)
-        return tk.Menu(self.root, tearoff=0,
-                       bg=t.hdr, fg=t.txt,
-                       activebackground=t.hov, activeforeground=t.txt,
-                       font=("Segoe UI", 10), bd=0, relief="flat")
+        return ContextMenu(self.root, t)
 
     def group_ctx(self, e: tk.Event, group: dict) -> None:
         m = self._menu()
         m.add_command(label="⤢  Open focus", command=lambda: self.open_focus(group))
         m.add_separator()
-        m.add_command(label="Rename",        command=lambda: self.rename_group(group))
-        m.add_command(label="Clear all apps",command=lambda: self.clear_group(group["id"]))
+        m.add_command(label="✎  Rename",       command=lambda: self.rename_group(group))
+        m.add_command(label="🗑  Clear all",   command=lambda: self.clear_group(group["id"]))
         m.add_separator()
-        m.add_command(label="Delete widget", command=lambda: self.delete_group(group["id"]))
+        m.add_command(label="✕  Delete widget", command=lambda: self.delete_group(group["id"]))
         m.add_separator()
-        m.add_command(label="⚙  Settings",  command=self.open_settings)
-        m.add_separator()
-        m.add_command(label="Quit",          command=self._quit)
-        self.root.focus_force()
-        try: m.tk_popup(e.x_root, e.y_root)
-        finally: m.grab_release()
+        m.add_command(label="⚙  Settings",     command=self.open_settings)
+        m.add_command(label="⏻  Quit",         command=self._quit)
+        m.tk_popup(e.x_root, e.y_root)
 
     def app_ctx(self, path: str, name: str, gid: int) -> None:
         m = self._menu()
         m.add_command(label=f"▶  Launch {name}", command=lambda: launch_app(path))
         m.add_separator()
-        m.add_command(label="✎  Rename",  command=lambda: self.rename_app(path, gid))
-        m.add_command(label="✕  Remove",  command=lambda: self.remove_app(path, gid))
-        self.root.focus_force()
-        try: m.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
-        finally: m.grab_release()
+        m.add_command(label="✎  Rename", command=lambda: self.rename_app(path, gid))
+        m.add_command(label="✕  Remove", command=lambda: self.remove_app(path, gid))
+        m.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
 
     # ── System tray ────────────────────────────────────────
 

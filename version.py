@@ -3,7 +3,7 @@ version.py — Single source of truth for the app version.
 Bump this before every release.
 """
 
-VERSION = "1.0.23"
+VERSION = "1.0.24"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"
@@ -18,5 +18,10 @@ CHANGELOG: dict[str, list[str]] = {
     ],
     "1.0.24": [
         "New Abyss theme — black background with red accents",
-    ]
+    ],
+    "1.0.25": [
+        "Themed right-click context menus",
+        "Complete theme overhaul — more distinct and vibrant themes",
+        "New themes: Ember, Void, Forest, Ocean, Rust, Mono, Parchment, Silver",
+    ],
 }

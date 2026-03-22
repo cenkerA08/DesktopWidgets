@@ -18,7 +18,7 @@ SPEC_FILE   = os.path.join(PROJECT_DIR, "DesktopWidget.spec")
 
 SOURCE_FILES = [
     "main.py", "manager.py", "config.py", "theme.py", "utils.py",
-    "version.py", "updater.py",
+    "version.py", "updater.py", "context_menu.py",
     "base_widget.py", "group_widget.py",
     "statsplus_widget.py", "notes_widget.py", "docs_widget.py",
     "media_widget.py", "recent_widget.py", "color_picker.py",

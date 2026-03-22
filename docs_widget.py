@@ -342,8 +342,7 @@ class DocsWidget(BaseWidget):
         m.add_command(label="Remove",
                       command=lambda: self._remove_file(path))
         self.mgr.root.focus_force()
-        try: m.tk_popup(self.mgr.root.winfo_pointerx(), self.mgr.root.winfo_pointery())
-        finally: m.grab_release()
+        m.tk_popup(self.mgr.root.winfo_pointerx(), self.mgr.root.winfo_pointery())
 
     def _remove_file(self, path: str) -> None:
         self._blk["files"] = [f for f in self._blk.get("files", [])
@@ -362,8 +361,7 @@ class DocsWidget(BaseWidget):
         m.add_separator()
         m.add_command(label="⚙  Settings", command=self.mgr.open_settings)
         self.mgr.root.focus_force()
-        try: m.tk_popup(e.x_root, e.y_root)
-        finally: m.grab_release()
+        m.tk_popup(e.x_root, e.y_root)
 
     # ── Drop ───────────────────────────────────────────────
 
