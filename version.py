@@ -31,6 +31,10 @@ CHANGELOG: dict[str, list[str]] = {
     "1.0.27": [
         "fixed: Discord mishandling"
     ],
+    "1.0.28": [
+        "Media: Support multi language"
+    ],
+
 
 
 }

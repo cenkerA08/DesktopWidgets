@@ -4,7 +4,7 @@ PIL-rendered layout: large album art, clean text, progress bar, controls.
 Uses Windows WinRT GlobalSystemMediaTransportControls API (pip install winsdk).
 """
 from __future__ import annotations
-import threading, time, io, math
+import threading, time, io, os
 from typing import TYPE_CHECKING
 
 import tkinter as tk
@@ -68,9 +68,123 @@ def _hex_rgba(c: str, a: int = 255) -> tuple:
     return (int(c[0:2],16), int(c[2:4],16), int(c[4:6],16), a)
 
 
+# ── CJK-aware font loading ─────────────────────────────────
+#
+# PIL resolves bare font filenames against C:\Windows\Fonts on Windows.
+# However, .ttc (font collection) files contain multiple faces and PIL
+# defaults to index 0, which may not carry CJK glyphs.
+#
+# This implementation:
+#   1. Builds an explicit list of (filename, ttc_index) candidates.
+#   2. Resolves each against %WINDIR%\Fonts with the full path.
+#   3. Validates CJK coverage by measuring a test glyph.
+#   4. Caches results to avoid repeated disk access.
+#
+# All fonts listed ship with Windows 10/11 by default.
+
+_WINFONTS = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+
+# (filename, ttc_index) — ordered by preference
+_CJK_CANDIDATES: list[tuple[str, int]] = [
+    ("meiryo.ttc",   0),   # Meiryo — Japanese, Win Vista+
+    ("meiryo.ttc",   1),   # Meiryo UI
+    ("msyh.ttc",     0),   # Microsoft YaHei — Simplified Chinese, Win 7+
+    ("msyh.ttc",     1),   # Microsoft YaHei UI
+    ("malgun.ttf",   0),   # Malgun Gothic — Korean, Win 7+
+    ("yugothb.ttc",  0),   # Yu Gothic Bold — Japanese, Win 10+
+    ("yugothm.ttc",  0),   # Yu Gothic Medium
+    ("yugothr.ttc",  0),   # Yu Gothic Regular
+    ("simsun.ttc",   0),   # SimSun — Simplified Chinese
+    ("gulim.ttc",    0),   # Gulim — Korean
+    ("msgothic.ttc", 0),   # MS Gothic — Japanese
+    ("msgothic.ttc", 2),   # MS UI Gothic
+]
+
+# Test string that exercises JP / CN / KR simultaneously
+_CJK_TEST = "あ字한"
+
+# Cache: key → ImageFont or None
+_font_cache: dict[tuple, object] = {}
+
+
+def _load_cjk_candidate(filename: str, size: int, index: int):
+    """
+    Attempt to load a font by filename (tried both as full Windows path and
+    bare name) and verify it actually renders CJK glyphs.
+    Returns an ImageFont on success, None on failure.
+    """
+    for base in (os.path.join(_WINFONTS, filename), filename):
+        try:
+            f = ImageFont.truetype(base, size, index=index)
+            bbox = f.getbbox(_CJK_TEST)
+            # A real CJK glyph should be at least ~40% of the font size wide
+            if bbox and (bbox[2] - bbox[0]) > size * 0.4:
+                return f
+        except Exception:
+            continue
+    return None
+
+
+def _find_cjk_font(size: int):
+    """Return the first available CJK-capable font at the given pixel size."""
+    key = ("__cjk__", size)
+    if key in _font_cache:
+        return _font_cache[key]
+    for filename, index in _CJK_CANDIDATES:
+        f = _load_cjk_candidate(filename, size, index)
+        if f is not None:
+            _font_cache[key] = f
+            return f
+    _font_cache[key] = None
+    return None
+
+
+def _needs_cjk(text: str) -> bool:
+    """Return True if the string contains CJK / Hangul / Kana codepoints."""
+    for ch in text:
+        cp = ord(ch)
+        if (0x3000 <= cp <= 0x9FFF    # CJK unified, kana, bopomofo
+                or 0xAC00 <= cp <= 0xD7AF    # Hangul syllables
+                or 0xF900 <= cp <= 0xFAFF    # CJK compatibility
+                or 0x20000 <= cp <= 0x2FA1F):  # CJK extensions B–F
+            return True
+    return False
+
+
 def _try_font(name: str, size: int):
-    try: return ImageFont.truetype(name, size)
-    except Exception: return ImageFont.load_default()
+    """
+    Load a PIL font by filename at the given size, using the Windows font dir.
+    Falls back to PIL's default bitmap font if the file cannot be opened.
+    Results are cached.
+    """
+    key = (name, size)
+    if key in _font_cache:
+        cached = _font_cache[key]
+        return cached if cached is not None else ImageFont.load_default()
+
+    for base in (os.path.join(_WINFONTS, name), name):
+        try:
+            f = ImageFont.truetype(base, size)
+            _font_cache[key] = f
+            return f
+        except Exception:
+            continue
+
+    _font_cache[key] = None
+    return ImageFont.load_default()
+
+
+def _best_font(text: str, preferred_name: str, size: int):
+    """
+    Return the best available font for rendering `text`.
+    Switches to a CJK-capable font automatically when the text contains
+    Japanese, Chinese, or Korean characters.
+    """
+    if _needs_cjk(text):
+        cjk = _find_cjk_font(size)
+        if cjk is not None:
+            return cjk
+    return _try_font(preferred_name, size)
 
 
 def _render_media(w: int, h: int, tr: "_Track", t,
@@ -123,18 +237,22 @@ def _render_media(w: int, h: int, tr: "_Track", t,
         d.text((tx, ty), tr.source, fill=_hex_rgba(t.accent), font=sf, anchor="lt")
         ty += 11*S
 
-    title_f = _try_font("segoeuib.ttf", 11*S)
+    # Title — auto-switch to CJK font when needed
+    title_f = _best_font(tr.title, "segoeuib.ttf", 15*S)
     for line in _wrap(tr.title, title_f, t_w)[:2]:
         d.text((tx, ty), line, fill=txt, font=title_f, anchor="lt")
-        ty += 14*S
+        ty += 18*S
 
     ty += 3*S
-    artist_f = _try_font("segoeui.ttf", 9*S)
-    d.text((tx, ty), tr.artist, fill=txt2, font=artist_f, anchor="lt")
-    ty += 13*S
 
+    # Artist — auto-switch to CJK font when needed
+    artist_f = _best_font(tr.artist, "segoeui.ttf", 13*S)
+    d.text((tx, ty), tr.artist, fill=txt2, font=artist_f, anchor="lt")
+    ty += 17*S
+
+    # Album — auto-switch to CJK font when needed
     if tr.album and tr.album != tr.title:
-        alb_f = _try_font("segoeui.ttf", 8*S)
+        alb_f = _best_font(tr.album, "segoeui.ttf", 11*S)
         d.text((tx, ty), _truncate(tr.album, alb_f, t_w),
                fill=_hex_rgba(t.txt2, 160), font=alb_f, anchor="lt")
 
