@@ -46,8 +46,22 @@ def _find_zip(release: dict):
 
 
 def _download(url: str, dest: str) -> bool:
+    """
+    Download a file from a URL to dest.
+    Uses proper headers so GitHub registers the download in its counter.
+    urllib.request.urlretrieve does not send the right headers through
+    GitHub's redirect, causing downloads to show as 0 in release stats.
+    """
     try:
-        urllib.request.urlretrieve(url, dest)
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "DesktopWidget-Updater",
+                "Accept": "application/octet-stream",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
+            shutil.copyfileobj(r, f)
         return os.path.isfile(dest) and os.path.getsize(dest) > 0
     except Exception:
         return False

@@ -692,67 +692,165 @@ def remove_task() -> bool:
         return r.returncode == 0
     except: return False
 
+
 # ── Styled dialogs ─────────────────────────────────────────
+
+def _make_dialog(parent: tk.Misc, t, dw: int, dh: int) -> tk.Toplevel:
+    """Create a centered, borderless, topmost dialog window."""
+    dlg = tk.Toplevel(parent)
+    dlg.title("")
+    dlg.overrideredirect(True)
+    dlg.attributes("-topmost", True)
+    dlg.configure(bg=t.bg)
+    sw = parent.winfo_screenwidth()
+    sh = parent.winfo_screenheight()
+    dlg.geometry(f"{dw}x{dh}+{(sw - dw) // 2}+{(sh - dh) // 2}")
+
+    # Outer border ring for a card-like feel
+    border_frame = tk.Frame(dlg, bg=t.border, padx=1, pady=1)
+    border_frame.pack(fill="both", expand=True)
+    inner = tk.Frame(border_frame, bg=t.bg)
+    inner.pack(fill="both", expand=True)
+
+    return dlg, inner
+
+
+def _dialog_header(parent, t, title: str, icon: str = "") -> None:
+    """Accent-colored top bar with icon + title."""
+    hdr = tk.Frame(parent, bg=t.hdr)
+    hdr.pack(fill="x")
+
+    # Thin accent line at very top
+    tk.Frame(hdr, bg=t.accent, height=2).pack(fill="x")
+
+    label_text = f"{icon}  {title}" if icon else title
+    tk.Label(hdr, text=label_text,
+             font=("Segoe UI Semibold", 12),
+             bg=t.hdr, fg=t.txt,
+             anchor="w", padx=18, pady=11).pack(fill="x")
+
+
+def _styled_button(parent, text: str, bg: str, fg: str,
+                   command, font_size: int = 10, bold: bool = False) -> tk.Label:
+    """
+    A Label-based button with hover highlight — looks cleaner than tk.Button
+    since it avoids the sunken relief artifact on Windows.
+    """
+    weight = "bold" if bold else "normal"
+    btn = tk.Label(parent, text=text,
+                   font=("Segoe UI", font_size, weight),
+                   bg=bg, fg=fg,
+                   cursor="hand2",
+                   padx=20, pady=7)
+
+    # Lighten bg on hover
+    def _darken(hex_color: str, amount: int = 20) -> str:
+        hex_color = hex_color.lstrip("#")
+        r = max(0, int(hex_color[0:2], 16) - amount)
+        g = max(0, int(hex_color[2:4], 16) - amount)
+        b = max(0, int(hex_color[4:6], 16) - amount)
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    hover_bg = _darken(bg, 25)
+    btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
+    btn.bind("<Leave>", lambda e: btn.config(bg=bg))
+    btn.bind("<Button-1>", lambda e: command())
+    return btn
+
+
 def ask_string(parent: tk.Misc, title: str, prompt: str,
                initial: str = "", theme: Theme | None = None) -> str | None:
     from theme import Theme
     t = theme or Theme()
     result = [None]
-    dlg = tk.Toplevel(parent)
-    dlg.title(""); dlg.overrideredirect(True)
-    dlg.attributes("-topmost", True); dlg.configure(bg=t.bg)
-    dw, dh = 340, 145
-    sw = parent.winfo_screenwidth(); sh = parent.winfo_screenheight()
-    dlg.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
 
-    tk.Label(dlg, text=title, font=("Segoe UI", 10, "bold"),
-             bg=t.hdr, fg=t.txt, pady=8).pack(fill="x")
-    tk.Frame(dlg, bg=t.border, height=1).pack(fill="x")
-    tk.Label(dlg, text=prompt, font=("Segoe UI", 9),
-             bg=t.bg, fg=t.txt2, anchor="w").pack(fill="x", padx=12, pady=(8, 2))
+    dlg, inner = _make_dialog(parent, t, dw=440, dh=210)
+    _dialog_header(inner, t, title, icon="✏")
+
+    # Body
+    body = tk.Frame(inner, bg=t.bg)
+    body.pack(fill="both", expand=True, padx=18, pady=(14, 0))
+
+    tk.Label(body, text=prompt,
+             font=("Segoe UI", 10),
+             bg=t.bg, fg=t.txt2,
+             anchor="w").pack(fill="x", pady=(0, 6))
+
+    # Entry with rounded-looking container frame
+    entry_frame = tk.Frame(body, bg=t.accent, padx=1, pady=1)
+    entry_frame.pack(fill="x")
+    entry_inner = tk.Frame(entry_frame, bg="#0e1118")
+    entry_inner.pack(fill="x")
 
     var = tk.StringVar(value=initial)
-    entry = tk.Entry(dlg, textvariable=var, font=("Segoe UI", 10),
-                     bg="#0e1118", fg=t.txt, insertbackground=t.txt,
-                     relief="flat", bd=0, highlightthickness=1,
-                     highlightcolor=t.accent, highlightbackground=t.border)
-    entry.pack(fill="x", padx=12, pady=4)
-    entry.select_range(0, "end"); entry.focus_set()
+    entry = tk.Entry(entry_inner, textvariable=var,
+                     font=("Segoe UI", 12),
+                     bg="#0e1118", fg=t.txt,
+                     insertbackground=t.accent,
+                     relief="flat", bd=0)
+    entry.pack(fill="x", padx=10, pady=8)
+    entry.select_range(0, "end")
+    entry.focus_set()
 
-    bf = tk.Frame(dlg, bg=t.bg); bf.pack(fill="x", padx=12, pady=8)
-    def ok(e=None): result[0] = var.get().strip() or None; dlg.destroy()
-    def cancel(e=None): dlg.destroy()
-    tk.Button(bf, text="Cancel", font=("Segoe UI", 9), bg=t.btn, fg=t.txt2,
-              relief="flat", bd=0, cursor="hand2", command=cancel).pack(side="left")
-    tk.Button(bf, text="OK", font=("Segoe UI", 9, "bold"), bg=t.accent, fg="white",
-              relief="flat", bd=0, cursor="hand2", command=ok).pack(side="right")
-    entry.bind("<Return>", ok); entry.bind("<Escape>", cancel)
-    dlg.grab_set(); parent.wait_window(dlg)
+    # Buttons
+    bf = tk.Frame(inner, bg=t.bg)
+    bf.pack(fill="x", padx=18, pady=14)
+
+    def ok(e=None):
+        result[0] = var.get().strip() or None
+        dlg.destroy()
+
+    def cancel(e=None):
+        dlg.destroy()
+
+    cancel_btn = _styled_button(bf, "Cancel", bg=t.btn, fg=t.txt2, command=cancel)
+    cancel_btn.pack(side="left")
+
+    ok_btn = _styled_button(bf, "OK", bg=t.accent, fg="white",
+                            command=ok, bold=True)
+    ok_btn.pack(side="right")
+
+    entry.bind("<Return>", ok)
+    entry.bind("<Escape>", cancel)
+    dlg.grab_set()
+    parent.wait_window(dlg)
     return result[0]
+
 
 def ask_confirm(parent: tk.Misc, message: str, theme: Theme | None = None) -> bool:
     from theme import Theme
     t = theme or Theme()
     result = [False]
-    dlg = tk.Toplevel(parent)
-    dlg.title(""); dlg.overrideredirect(True)
-    dlg.attributes("-topmost", True); dlg.configure(bg=t.bg)
-    dw, dh = 360, 155
-    sw = parent.winfo_screenwidth(); sh = parent.winfo_screenheight()
-    dlg.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
 
-    tk.Label(dlg, text="Confirm", font=("Segoe UI", 10, "bold"),
-             bg=t.hdr, fg=t.txt, pady=8).pack(fill="x")
-    tk.Frame(dlg, bg=t.border, height=1).pack(fill="x")
-    tk.Label(dlg, text=message, font=("Segoe UI", 9),
-             bg=t.bg, fg=t.txt2, justify="center", wraplength=320).pack(pady=14)
-    bf = tk.Frame(dlg, bg=t.bg); bf.pack(fill="x", padx=12, pady=8)
-    def yes(): result[0] = True; dlg.destroy()
-    def no(): dlg.destroy()
-    tk.Button(bf, text="Cancel", font=("Segoe UI", 9), bg=t.btn, fg=t.txt2,
-              relief="flat", bd=0, cursor="hand2", command=no).pack(side="left")
-    tk.Button(bf, text="Confirm", font=("Segoe UI", 9, "bold"), bg="#8b2020", fg="white",
-              relief="flat", bd=0, cursor="hand2", command=yes).pack(side="right")
+    dlg, inner = _make_dialog(parent, t, dw=400, dh=200)
+    _dialog_header(inner, t, "Confirm", icon="⚠")
+
+    # Message
+    tk.Label(inner, text=message,
+             font=("Segoe UI", 10),
+             bg=t.bg, fg=t.txt2,
+             justify="center",
+             wraplength=360).pack(pady=18, padx=18)
+
+    # Buttons
+    bf = tk.Frame(inner, bg=t.bg)
+    bf.pack(fill="x", padx=18, pady=(0, 16))
+
+    def yes():
+        result[0] = True
+        dlg.destroy()
+
+    def no():
+        dlg.destroy()
+
+    cancel_btn = _styled_button(bf, "Cancel", bg=t.btn, fg=t.txt2, command=no)
+    cancel_btn.pack(side="left")
+
+    confirm_btn = _styled_button(bf, "Confirm", bg="#8b2020", fg="white",
+                                 command=yes, bold=True)
+    confirm_btn.pack(side="right")
+
     dlg.bind("<Escape>", lambda e: no())
-    dlg.grab_set(); parent.wait_window(dlg)
+    dlg.grab_set()
+    parent.wait_window(dlg)
     return result[0]
