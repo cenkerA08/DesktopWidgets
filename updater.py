@@ -127,8 +127,20 @@ def _write_swap_bat(install_dir: str, pending: list, exe_path: str) -> str:
     return bat
 
 
+def ping_launch() -> None:
+    """Silent launch counter. Fails without affecting the program."""
+    try:
+        url = "https://api.countapi.xyz/hit/desktopwidgets-cenker/launches"
+        req = urllib.request.Request(url, headers={"User-Agent": "DesktopWidget"})
+        urllib.request.urlopen(req, timeout=3)
+    except Exception:
+        pass
+
+
 def check_and_apply() -> None:
     """Call from main.py before the UI starts."""
+    ping_launch()
+
     if not getattr(sys, "frozen", False):
         return   # source run — skip
     if UPDATE_FLAG in sys.argv:
