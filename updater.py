@@ -46,22 +46,8 @@ def _find_zip(release: dict):
 
 
 def _download(url: str, dest: str) -> bool:
-    """
-    Download a file from a URL to dest.
-    Uses proper headers so GitHub registers the download in its counter.
-    urllib.request.urlretrieve does not send the right headers through
-    GitHub's redirect, causing downloads to show as 0 in release stats.
-    """
     try:
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "DesktopWidget-Updater",
-                "Accept": "application/octet-stream",
-            }
-        )
-        with urllib.request.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
-            shutil.copyfileobj(r, f)
+        urllib.request.urlretrieve(url, dest)
         return os.path.isfile(dest) and os.path.getsize(dest) > 0
     except Exception:
         return False
@@ -127,20 +113,8 @@ def _write_swap_bat(install_dir: str, pending: list, exe_path: str) -> str:
     return bat
 
 
-def ping_launch() -> None:
-    """Silent launch counter. Fails without affecting the program."""
-    try:
-        url = "https://api.countapi.xyz/hit/desktopwidgets-cenker/launches"
-        req = urllib.request.Request(url, headers={"User-Agent": "DesktopWidget"})
-        urllib.request.urlopen(req, timeout=3)
-    except Exception:
-        pass
-
-
 def check_and_apply() -> None:
     """Call from main.py before the UI starts."""
-    ping_launch()
-
     if not getattr(sys, "frozen", False):
         return   # source run — skip
     if UPDATE_FLAG in sys.argv:
