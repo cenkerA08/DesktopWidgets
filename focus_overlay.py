@@ -287,6 +287,19 @@ class FocusOverlay:
         if h and "right" in h:
             h["right"]()
 
+    def _apply_theme(self) -> None:
+        """Update colours in place — called by the animated theme loop."""
+        self._t = config.get_theme(self.mgr.data, self.group.get("theme_override"))
+        # Tile cache holds PIL images coloured with the old theme — must clear
+        # so tiles re-render with new bg/border/accent colours (including hover).
+        self._tile_cache.clear()
+        try:
+            self.win.configure(bg=self._t.bg)
+            self.cv.configure(bg=self._t.bg)
+            self._render(self._hov)
+        except Exception:
+            pass
+
     def close(self) -> None:
         try: self.bg.destroy()
         except: pass

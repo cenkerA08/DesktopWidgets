@@ -1,6 +1,6 @@
 """
 manager.py — The application orchestrator.
-Creates and manages all widgets, handles menus, reflow, theme application.
+Creates and manages all widgets, handles menus, reflow, theme animation.
 """
 from __future__ import annotations
 import os, sys, threading
@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 import config
-from theme import CHROMA, MARGIN
+from theme import CHROMA, MARGIN, CYCLE_THEMES_DEFAULT, ANIM_SPEEDS
 from utils import (ask_string, ask_confirm, push_desktop, allow_dnd_from_explorer,
                    launch_app, task_exists, create_task, remove_task,
                    create_desktop_shortcut)
@@ -81,6 +81,18 @@ class Manager:
         # System tray icon
         if TRAY_OK:
             threading.Thread(target=self._tray_loop, daemon=True).start()
+
+        # Animated theme state
+        self._rgb_hue:     float = 0.0
+        self._rgb_running: bool  = False
+        self._rgb_mode:    str   = "flow"
+        self._cycle_t:     int   = 0     # tick counter for Theme Cycle
+        self._add_picker:  tk.Toplevel | None = None
+        self._add_picker_t               = None  # theme at last add-picker recolor
+        _preset = self.data.get("theme_preset", "")
+        if _preset in ("RGB Flow", "Theme Cycle"):
+            _mode = "cycle" if _preset == "Theme Cycle" else "flow"
+            self.root.after(200, lambda m=_mode: self.rgb_start(m))
 
     # ── Widget creation ────────────────────────────────────
 
@@ -421,6 +433,108 @@ class Manager:
             traceback.print_exc()
             self.settings_screen = None
 
+    # ── Live window recoloring ────────────────────────────
+
+    def _recolor_window(self, win: tk.Toplevel, old_t, new_t) -> None:
+        """Walk a tk widget tree and swap theme colours without rebuilding."""
+        color_map: dict[str, str] = {}
+        for k, ov in old_t.to_dict().items():
+            if isinstance(ov, str) and ov.startswith("#"):
+                nv = getattr(new_t, k, ov)
+                if ov.lower() != nv.lower():
+                    color_map[ov.lower()] = nv
+        if not color_map:
+            return
+
+        def _walk(widget):
+            for attr in ("bg", "fg", "highlightbackground", "activebackground"):
+                try:
+                    cur = widget.cget(attr)
+                    rep = color_map.get(cur.lower() if cur else "")
+                    if rep:
+                        widget.configure(**{attr: rep})
+                except Exception:
+                    pass
+            for child in widget.winfo_children():
+                _walk(child)
+
+        _walk(win)
+
+    # ── RGB / Theme Cycle animation ────────────────────────
+
+    _RGB_TICK_MS = 60   # ms per tick (~16 fps — smoother transitions)
+
+    def rgb_start(self, mode: str = "flow") -> None:
+        """Start animated theme. mode: 'flow' (RGB hue) or 'cycle' (preset themes)."""
+        self._rgb_mode = mode
+        if not self._rgb_running:
+            self._rgb_running = True
+            self._rgb_tick()
+
+    def rgb_stop(self) -> None:
+        """Stop the animated theme."""
+        self._rgb_running = False
+
+    def _speed_params(self) -> tuple[float, int, int]:
+        """Return (rgb_deg, hold_ticks, blend_ticks) for the current speed setting."""
+        val = self.data.get("anim_speed_val", None)
+        if val is not None:
+            v     = max(1, min(10, int(val)))
+            deg   = 0.5 + (v - 1) * 0.6          # Rainbow: 0.5→5.9 deg/tick
+            hold  = max(10, 100 - (v - 1) * 10)  # hold: 100→10 ticks
+            blend = max(12,  48 - (v - 1) *  4)  # blend: 48→12 ticks (always ≥12 for smoothness)
+            return float(deg), int(hold), int(blend)
+        # Legacy string fallback
+        _legacy = {"slow": (1.125, 80, 40), "normal": (2.25, 50, 20), "fast": (4.5, 15, 12)}
+        return _legacy.get(self.data.get("anim_speed", "normal"), (2.25, 50, 20))
+
+    def _cycle_theme(self, hold: int, blend: int) -> "theme.Theme":
+        """Return the blended theme for the current cycle tick."""
+        import theme as _th
+        names = self.data.get("cycle_themes", CYCLE_THEMES_DEFAULT)
+        valid = [n for n in names if n in _th.PRESETS]
+        if not valid:
+            valid = list(CYCLE_THEMES_DEFAULT)
+        slot     = self._cycle_t % (hold + blend)
+        idx      = (self._cycle_t  // (hold + blend)) % len(valid)
+        next_idx = (idx + 1) % len(valid)
+        t1 = _th.PRESETS[valid[idx]]
+        t2 = _th.PRESETS[valid[next_idx]]
+        if slot < hold:
+            return t1
+        raw   = min(1.0, (slot - hold) / blend)
+        eased = raw * raw * (3.0 - 2.0 * raw)   # smoothstep — slow start/end, fast middle
+        return _th.lerp_themes(t1, t2, eased)
+
+    def _rgb_tick(self) -> None:
+        if not self._rgb_running:
+            return
+        import theme as _th
+        deg, hold, blend = self._speed_params()
+
+        if self._rgb_mode == "flow":
+            self._rgb_hue = (self._rgb_hue + deg) % 360.0
+            t = _th.rgb_theme_at_hue(self._rgb_hue)
+        else:  # cycle
+            t = self._cycle_theme(hold, blend)
+            self._cycle_t += 1
+
+        self.data["theme"] = t.to_dict()
+        _th.active = t
+        self.apply_theme()
+
+        # Live-recolor open overlay windows — no rebuild, no flicker
+        if self.settings_screen:
+            try: self.settings_screen._live_recolor(t)
+            except Exception: pass
+        if self._add_picker and self._add_picker_t:
+            try:
+                self._recolor_window(self._add_picker, self._add_picker_t, t)
+                self._add_picker_t = t
+            except Exception: pass
+
+        self.root.after(self._RGB_TICK_MS, self._rgb_tick)
+
     def apply_theme(self) -> None:
         """Redraw all widgets after a theme change."""
         for gw in self.wins.values():
@@ -434,6 +548,18 @@ class Manager:
         ui_font = self.data.get("ui_font", "Segoe UI")
         if self.notes_win and self.notes_win._text_widget:
             try: self.notes_win._text_widget.configure(font=(ui_font, 10))
+            except Exception: pass
+        # Keep focus overlay in sync
+        if self.focus:
+            try: self.focus._apply_theme()
+            except Exception: pass
+        # Add-picker: only recolor here when NOT animating (animation loop
+        # handles it per-tick to avoid doing the walk twice per frame).
+        if not self._rgb_running and self._add_picker and self._add_picker_t:
+            try:
+                t_now = config.get_theme(self.data)
+                self._recolor_window(self._add_picker, self._add_picker_t, t_now)
+                self._add_picker_t = t_now
             except Exception: pass
 
     # ── Stats+ ─────────────────────────────────────────────
@@ -535,6 +661,11 @@ class Manager:
         dlg.overrideredirect(True)
         dlg.attributes("-topmost", True)
         dlg.configure(bg=t.bg)
+        self._add_picker   = dlg
+        self._add_picker_t = t
+        dlg.bind("<Destroy>",
+                 lambda e: setattr(self, "_add_picker", None)
+                 if e.widget is dlg else None)
         dw = 300
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()

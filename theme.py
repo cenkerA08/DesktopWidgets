@@ -3,9 +3,74 @@ theme.py — Single source of truth for all colors, fonts, and layout sizes.
 Everything else imports from here. Change a value here, it changes everywhere.
 """
 from __future__ import annotations
+import colorsys
 from dataclasses import dataclass, asdict
 
 CHROMA = "#010203"
+
+# Default preset rotation for the Theme Cycle animated theme.
+# Defined here (not in manager.py) to avoid circular imports.
+CYCLE_THEMES_DEFAULT: list[str] = [
+    "Dracula", "Ocean", "Vaporwave", "Forest",
+    "Ember", "Void", "Tokyo Night", "Nord",
+]
+
+# Speed presets: (rgb_deg_per_tick, cycle_hold_ticks, cycle_blend_ticks)
+ANIM_SPEEDS: dict[str, tuple[float, int, int]] = {
+    "slow":   (1.125, 60, 20),
+    "normal": (2.25,  40, 15),
+    "fast":   (4.5,   20,  8),
+}
+
+
+def hsv_to_hex(h: float, s: float, v: float) -> str:
+    """h: 0–360, s: 0–1, v: 0–1  →  '#rrggbb'"""
+    r, g, b = colorsys.hsv_to_rgb(h / 360.0, s, v)
+    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
+
+def lerp_hex(c1: str, c2: str, t: float) -> str:
+    """Linearly interpolate between two hex colours. t: 0.0–1.0."""
+    r1, g1, b1 = int(c1[1:3], 16), int(c1[3:5], 16), int(c1[5:7], 16)
+    r2, g2, b2 = int(c2[1:3], 16), int(c2[3:5], 16), int(c2[5:7], 16)
+    return (f"#{int(r1+(r2-r1)*t):02x}"
+            f"{int(g1+(g2-g1)*t):02x}"
+            f"{int(b1+(b2-b1)*t):02x}")
+
+
+def lerp_themes(t1: "Theme", t2: "Theme", progress: float) -> "Theme":
+    """Blend two Themes. progress 0.0 = full t1, 1.0 = full t2."""
+    d1, d2 = t1.to_dict(), t2.to_dict()
+    out = {}
+    for k, v1 in d1.items():
+        v2 = d2.get(k, v1)
+        if isinstance(v1, str) and v1.startswith("#"):
+            out[k] = lerp_hex(v1, v2, progress)
+        else:
+            out[k] = v1   # non-colour fields (e.g. stat_font) don't blend
+    return Theme(**out)
+
+
+def rgb_theme_at_hue(h: float) -> "Theme":
+    """Return a Theme whose colors are derived from a single hue (0–360).
+    Used by the RGB Flow animated theme to generate each animation frame."""
+    return Theme(
+        bg      = hsv_to_hex(h,           0.80, 0.08),
+        hdr     = hsv_to_hex(h,           0.80, 0.05),
+        border  = hsv_to_hex(h,           0.70, 0.30),
+        hov     = hsv_to_hex(h,           0.70, 0.17),
+        btn     = hsv_to_hex(h,           0.60, 0.13),
+        btn_h   = hsv_to_hex(h,           0.65, 0.21),
+        txt     = "#f0f0f0",
+        txt2    = hsv_to_hex(h,           0.20, 0.55),
+        txt3    = hsv_to_hex(h,           0.15, 0.78),
+        accent  = hsv_to_hex(h,           1.00, 1.00),
+        ok      = hsv_to_hex((h+120)%360, 1.00, 0.90),
+        warn    = hsv_to_hex((h + 60)%360, 1.00, 0.90),
+        danger  = hsv_to_hex((h+180)%360, 1.00, 0.90),
+        up_col  = hsv_to_hex((h + 90)%360, 0.90, 1.00),
+        dn_col  = hsv_to_hex((h+210)%360, 0.90, 1.00),
+    )
 
 SNAP        = 10
 MARGIN      = 10
@@ -272,6 +337,15 @@ PRESETS: dict[str, Theme] = {
         stat_font="Consolas",
     ),
 
+    # ── Animated ───────────────────────────────────────────
+
+    # Hue-cycling animated theme — static snapshot used for the swatch only
+    "RGB": rgb_theme_at_hue(270),
+
 }
+
+# Theme Cycle added after dict is built so we can reference existing presets.
+# The static swatch is a 50% blend of Dracula → Ocean.
+PRESETS["Cycle"] = lerp_themes(PRESETS["Dracula"], PRESETS["Ocean"], 0.5)
 
 active: Theme = Theme()

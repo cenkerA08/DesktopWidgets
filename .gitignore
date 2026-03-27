@@ -36,6 +36,10 @@ Thumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 
+# ── Claude Code ───────────────────────────────────────────
+# Ignore worktrees but keep settings/memory
+.claude/worktrees/
+
 # ── Secrets ───────────────────────────────────────────────
 # Never commit tokens or keys
 .env

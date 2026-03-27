@@ -52,6 +52,50 @@ def _outline_btn(parent, text, command, t, danger=False, **kw):
     return btn
 
 
+def _flat_slider(parent, t, from_val: int, to_val: int, initial: int, command):
+    """Canvas-based flat slider that matches the app's dark UI style."""
+    H, TRACK_H, THUMB_R = 20, 4, 7
+    val = [max(from_val, min(to_val, initial))]
+
+    cv = tk.Canvas(parent, height=H, bg=t.bg, highlightthickness=0, cursor="hand2")
+
+    def _draw(w=None):
+        cv.delete("all")
+        w = w or cv.winfo_width()
+        if w <= 1:
+            return
+        pad = THUMB_R + 1
+        track_w = w - 2 * pad
+        y = H // 2
+        frac = (val[0] - from_val) / max(1, to_val - from_val)
+        tx = pad + frac * track_w
+        # Empty track
+        cv.create_rectangle(pad, y - TRACK_H // 2, w - pad, y + TRACK_H // 2,
+                            fill=t.border, outline="")
+        # Filled portion
+        cv.create_rectangle(pad, y - TRACK_H // 2, tx, y + TRACK_H // 2,
+                            fill=t.accent, outline="")
+        # Thumb
+        cv.create_oval(tx - THUMB_R, y - THUMB_R, tx + THUMB_R, y + THUMB_R,
+                       fill=t.accent, outline="")
+
+    def _set(x):
+        w = cv.winfo_width()
+        pad = THUMB_R + 1
+        frac = max(0.0, min(1.0, (x - pad) / max(1, w - 2 * pad)))
+        v = round(from_val + frac * (to_val - from_val))
+        v = max(from_val, min(to_val, v))
+        if v != val[0]:
+            val[0] = v
+            command(v)
+        _draw()
+
+    cv.bind("<Configure>",  lambda e: _draw(e.width))
+    cv.bind("<Button-1>",   lambda e: _set(e.x))
+    cv.bind("<B1-Motion>",  lambda e: _set(e.x))
+    return cv
+
+
 def _col_stepper(parent, t, get_val, set_val, min_val=1, max_val=12):
     frame = tk.Frame(parent, bg=t.btn, highlightbackground=t.btn, highlightthickness=2)
     def _dec():
@@ -169,7 +213,41 @@ class SettingsScreen:
         except:
             self.close()
 
+    def _live_recolor(self, new_t) -> None:
+        """Swap theme colours across all child widgets without rebuilding.
+        Called by the animation loop — zero flicker, no widget recreation."""
+        old_t = getattr(self, "_built_t", None)
+        if old_t is None:
+            return
+        # Build a hex→hex replacement map for colours that actually changed
+        color_map: dict[str, str] = {}
+        for k, old_v in old_t.to_dict().items():
+            if isinstance(old_v, str) and old_v.startswith("#"):
+                new_v = getattr(new_t, k, old_v)
+                if old_v.lower() != new_v.lower():
+                    color_map[old_v.lower()] = new_v
+
+        if not color_map:
+            return
+
+        def _walk(widget):
+            for attr in ("bg", "fg", "highlightbackground", "activebackground"):
+                try:
+                    cur = widget.cget(attr)
+                    replacement = color_map.get(cur.lower() if cur else "")
+                    if replacement:
+                        widget.configure(**{attr: replacement})
+                except Exception:
+                    pass
+            for child in widget.winfo_children():
+                _walk(child)
+
+        _walk(self.win)
+        self._built_t = new_t   # next call diffs from the now-current state
+        self._update_scrollbar()  # keep thumb colour in sync with animated theme
+
     def _build(self, t):
+        self._built_t = t       # record which theme this layout was built with
         for w in self.win.winfo_children():
             w.destroy()
 
@@ -309,6 +387,27 @@ class SettingsScreen:
         pf.pack(fill="x", padx=PAD, pady=(4, 12))
         current = self.mgr.data.get("theme_preset", "Dark Blue")
         _preset_swatch_row(pf, t, current, self._apply_preset)
+
+        if current in ("RGB Flow", "Theme Cycle"):
+            self._section(p, t, "Animation Speed")
+            sf = tk.Frame(p, bg=t.bg)
+            sf.pack(fill="x", padx=PAD, pady=(4, 12))
+            cur_val = int(self.mgr.data.get("anim_speed_val", 5))
+            row = tk.Frame(sf, bg=t.bg)
+            row.pack(fill="x")
+            tk.Label(row, text="Slow", font=("Segoe UI", 8),
+                     bg=t.bg, fg=t.txt2).pack(side="left")
+            tk.Label(row, text="Fast", font=("Segoe UI", 8),
+                     bg=t.bg, fg=t.txt2).pack(side="right")
+            _flat_slider(row, t, 1, 10, cur_val,
+                         self._set_anim_speed_val).pack(
+                side="left", fill="x", expand=True, padx=8)
+
+        if current == "Theme Cycle":
+            self._section(p, t, "Themes to Cycle")
+            df = tk.Frame(p, bg=t.bg)
+            df.pack(fill="x", padx=PAD, pady=(4, 12))
+            self._theme_cycle_ui(df, t)
 
         self._section(p, t, "Icon Size")
         icon_frame = tk.Frame(p, bg=t.bg)
@@ -677,7 +776,94 @@ class SettingsScreen:
     def _rename_widget(self, g: dict) -> None:
         self.mgr.rename_group(g); self._rebuild()
 
+    def _set_anim_speed_val(self, val: int) -> None:
+        self.mgr.data["anim_speed_val"] = val
+        config.save(self.mgr.data)
+        # No rebuild — animation loop picks this up on next tick
+
+    def _theme_cycle_ui(self, parent, t) -> None:
+        """Swatch grid — click anywhere on a tile to toggle it in/out of the cycle."""
+        import theme as _th
+
+        animated   = {"RGB Flow", "Theme Cycle"}
+        candidates = [n for n in _th.PRESETS if n not in animated]
+        # name → (swatch_frame, check_label, name_label) for in-place updates
+        refs: dict[str, tuple] = {}
+
+        PER_ROW = 5
+        SW_W, SW_H, COL_W = 46, 30, 58
+
+        def _toggle(n: str) -> None:
+            cur = list(self.mgr.data.get("cycle_themes", _th.CYCLE_THEMES_DEFAULT))
+            if n in cur:
+                if len(cur) <= 1:
+                    return          # keep at least 1 theme
+                cur.remove(n)
+                sel = False
+            else:
+                cur.append(n)
+                sel = True
+            self.mgr.data["cycle_themes"] = cur
+            config.save(self.mgr.data)
+            # Update only the clicked tile — no rebuild
+            if n in refs:
+                sw, chk, lbl = refs[n]
+                sw.config(
+                    highlightbackground=t.accent if sel else t.border,
+                    highlightthickness=2 if sel else 1,
+                )
+                chk.config(fg=t.accent if sel else _th.PRESETS[n].bg)
+                lbl.config(fg=t.txt if sel else t.txt2)
+
+        active = self.mgr.data.get("cycle_themes", _th.CYCLE_THEMES_DEFAULT)
+
+        for row_start in range(0, len(candidates), PER_ROW):
+            row_frame = tk.Frame(parent, bg=t.bg)
+            row_frame.pack(anchor="w", pady=(0, 4))
+            for name in candidates[row_start:row_start + PER_ROW]:
+                preset   = _th.PRESETS[name]
+                selected = name in active
+
+                col = tk.Frame(row_frame, bg=t.bg, width=COL_W, cursor="hand2")
+                col.pack_propagate(False)
+                col.pack(side="left")
+
+                swatch = tk.Frame(col, bg=preset.bg, width=SW_W, height=SW_H,
+                                  highlightbackground=t.accent if selected else t.border,
+                                  highlightthickness=2 if selected else 1,
+                                  cursor="hand2")
+                swatch.place(relx=0.5, rely=0.0, anchor="n", y=2)
+
+                dot = tk.Frame(swatch, bg=preset.accent, width=10, height=3)
+                dot.place(relx=0.5, rely=0.82, anchor="center")
+
+                # Checkmark always present; invisible (fg=swatch bg) when not selected
+                chk = tk.Label(swatch, text="✓", font=("Segoe UI", 7, "bold"),
+                               bg=preset.bg,
+                               fg=t.accent if selected else preset.bg)
+                chk.place(relx=0.92, rely=0.12, anchor="ne")
+
+                short = name if len(name) <= 9 else name[:8] + "…"
+                lbl = tk.Label(col, text=short, font=("Segoe UI", 7),
+                               bg=t.bg, fg=t.txt if selected else t.txt2,
+                               anchor="center", cursor="hand2")
+                lbl.place(relx=0.5, rely=1.0, anchor="s", y=-1)
+                col.config(height=SW_H + 18)
+
+                refs[name] = (swatch, chk, lbl)
+
+                # Bind every part of the tile so there are no dead zones
+                for w in (col, swatch, dot, chk, lbl):
+                    w.bind("<Button-1>", lambda e, n=name: _toggle(n))
+
     def _apply_preset(self, name: str) -> None:
+        if name in ("RGB Flow", "Theme Cycle"):
+            self.mgr.data["theme_preset"] = name
+            config.save(self.mgr.data)
+            self.mgr.rgb_start("cycle" if name == "Theme Cycle" else "flow")
+            self._rebuild()
+            return
+        self.mgr.rgb_stop()
         preset = PRESETS[name]
         self.mgr.data["theme"] = preset.to_dict()
         self.mgr.data["theme_preset"] = name
