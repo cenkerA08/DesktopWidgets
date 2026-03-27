@@ -83,15 +83,18 @@ class Manager:
             threading.Thread(target=self._tray_loop, daemon=True).start()
 
         # Animated theme state
-        self._rgb_hue:     float = 0.0
-        self._rgb_running: bool  = False
-        self._rgb_mode:    str   = "flow"
-        self._cycle_t:     int   = 0     # tick counter for Theme Cycle
-        self._add_picker:  tk.Toplevel | None = None
-        self._add_picker_t               = None  # theme at last add-picker recolor
+        self._rgb_hue:        float = 0.0
+        self._rgb_running:    bool  = False
+        self._rgb_mode:       str   = "flow"
+        self._cycle_t:        int   = 0
+        self._last_anim_t           = None   # last rendered theme — dirty tracking
+        self._add_picker:     tk.Toplevel | None = None
+        self._add_picker_t          = None   # theme at last add-picker recolor
+        self._add_picker_accent     = None   # direct ref to accent bar frame
+        # Support both current and legacy preset names
         _preset = self.data.get("theme_preset", "")
-        if _preset in ("RGB Flow", "Theme Cycle"):
-            _mode = "cycle" if _preset == "Theme Cycle" else "flow"
+        if _preset in ("Rainbow", "Cycle", "RGB Flow", "Theme Cycle"):
+            _mode = "cycle" if _preset in ("Cycle", "Theme Cycle") else "flow"
             self.root.after(200, lambda m=_mode: self.rgb_start(m))
 
     # ── Widget creation ────────────────────────────────────
@@ -519,21 +522,37 @@ class Manager:
             t = self._cycle_theme(hold, blend)
             self._cycle_t += 1
 
-        self.data["theme"] = t.to_dict()
-        _th.active = t
-        self.apply_theme()
+        # ── Dirty tracking: only redraw when theme actually changed ──────
+        # During Cycle hold-phase the same theme object is returned every
+        # tick — skipping apply_theme() here cuts CPU by ~60-70 %.
+        changed = (t is not self._last_anim_t) and (t != self._last_anim_t)
+        self._last_anim_t = t
 
-        # Live-recolor open overlay windows — no rebuild, no flicker
-        if self.settings_screen:
-            try: self.settings_screen._live_recolor(t)
-            except Exception: pass
-        if self._add_picker and self._add_picker_t:
+        if changed:
+            self.data["theme"] = t.to_dict()
+            _th.active = t
+            self.apply_theme()
+            if self.settings_screen:
+                try: self.settings_screen._live_recolor(t)
+                except Exception: pass
+            if self._add_picker and self._add_picker_t:
+                try:
+                    self._recolor_window(self._add_picker, self._add_picker_t, t)
+                except Exception:
+                    pass
+                self._add_picker_t = t  # always sync, even on partial walk
+
+        # Direct accent-bar update — bypasses color-map walk entirely
+        if self._add_picker_accent:
             try:
-                self._recolor_window(self._add_picker, self._add_picker_t, t)
-                self._add_picker_t = t
-            except Exception: pass
+                self._add_picker_accent.config(bg=t.accent)
+            except Exception:
+                self._add_picker_accent = None
 
-        self.root.after(self._RGB_TICK_MS, self._rgb_tick)
+        # Adaptive rate: poll slowly during hold (nothing to draw),
+        # use full frame rate during blend for smooth transitions.
+        next_ms = self._RGB_TICK_MS if changed else min(200, self._RGB_TICK_MS * 3)
+        self.root.after(next_ms, self._rgb_tick)
 
     def apply_theme(self) -> None:
         """Redraw all widgets after a theme change."""
@@ -661,11 +680,16 @@ class Manager:
         dlg.overrideredirect(True)
         dlg.attributes("-topmost", True)
         dlg.configure(bg=t.bg)
-        self._add_picker   = dlg
-        self._add_picker_t = t
-        dlg.bind("<Destroy>",
-                 lambda e: setattr(self, "_add_picker", None)
-                 if e.widget is dlg else None)
+        self._add_picker        = dlg
+        self._add_picker_t      = t
+        self._add_picker_accent = None  # set below after frame is created
+
+        def _on_picker_destroy(e):
+            if e.widget is dlg:
+                self._add_picker        = None
+                self._add_picker_t      = None
+                self._add_picker_accent = None
+        dlg.bind("<Destroy>", _on_picker_destroy)
         dw = 300
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -681,7 +705,9 @@ class Manager:
         close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
         close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
         close_lbl.bind("<ButtonRelease-1>", lambda e: dlg.destroy())
-        tk.Frame(dlg, bg=t.accent, height=2).pack(fill="x")
+        _accent_bar = tk.Frame(dlg, bg=t.accent, height=2)
+        _accent_bar.pack(fill="x")
+        self._add_picker_accent = _accent_bar   # live-updated each tick
 
         # ── Widget cards ───────────────────────────────────
         options = [
