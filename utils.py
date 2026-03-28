@@ -256,15 +256,17 @@ def clamp_to_screen(x: int, y: int, w: int, h: int,
 
 def magnetic_snap(x: int, y: int, w: int, h: int,
                   others: list[tuple[int,int,int,int]],
-                  threshold: int = 16) -> tuple[int, int]:
+                  threshold: int = 16,
+                  sw: int = 0, sh: int = 0) -> tuple[int, int]:
     """
-    Snap x,y to edges and centres of other widgets.
+    Snap x,y to edges and centres of other widgets, and to screen centre.
 
     Priority (closest match wins per axis):
       1. Adjacent placement  — butt up against another widget's edge
       2. Edge alignment      — share a left/right/top/bottom edge
       3. Centre alignment    — centres line up
-      4. Grid snap           — fall back to nearest grid point
+      4. Screen centre snap  — widget centre aligns to screen centre
+      5. Grid snap           — fall back to nearest grid point
     """
     sx = snap_to_grid(x)
     sy = snap_to_grid(y)
@@ -294,6 +296,17 @@ def magnetic_snap(x: int, y: int, w: int, h: int,
         for snap_y, dist in v_snaps:
             if dist < best_dy:
                 best_dy = dist; sy = snap_y
+
+    # Screen centre snap — snap widget centre to screen centre
+    if sw > 0 and sh > 0:
+        cx_snap = sw // 2 - w // 2
+        cy_snap = sh // 2 - h // 2
+        dx = abs(x - cx_snap)
+        dy = abs(y - cy_snap)
+        if dx < best_dx:
+            best_dx = dx; sx = cx_snap
+        if dy < best_dy:
+            best_dy = dy; sy = cy_snap
 
     return sx, sy
 
@@ -398,11 +411,17 @@ def clip(s: str, n: int) -> str:
 
 # ── Icon extraction ────────────────────────────────────────
 _CACHE: dict[tuple, object] = {}
+_CACHE_MAX = 200
 
 def get_icon(path: str, size: int) -> object | None:
     from config import URL_APPS
     key = (path, size)
     if key not in _CACHE:
+        if len(_CACHE) >= _CACHE_MAX:
+            # Evict oldest quarter of entries
+            evict = list(_CACHE.keys())[:_CACHE_MAX // 4]
+            for k in evict:
+                del _CACHE[k]
         _CACHE[key] = _extract(path, size)
     return _CACHE[key]
 

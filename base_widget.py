@@ -396,9 +396,9 @@ class BaseWidget:
             sw = self.win.winfo_screenwidth()
             sh = self.win.winfo_screenheight()
             nx, ny = clamp_to_screen(nx, ny, self.W, self.H, sw, sh)
-            # Magnetic snap to other widgets
+            # Magnetic snap to other widgets and screen centre
             others = self.mgr.all_rects(exclude=self)
-            nx, ny = magnetic_snap(nx, ny, self.W, self.H, others)
+            nx, ny = magnetic_snap(nx, ny, self.W, self.H, others, sw=sw, sh=sh)
             # Apply dropped position
             self.win.geometry(f"+{nx}+{ny}")
 
@@ -440,8 +440,8 @@ class BaseWidget:
 
     def _show_prev(self, nx: int, ny: int) -> None:
         others = self.mgr.all_rects(exclude=self)
-        sx, sy = magnetic_snap(nx, ny, self.W, self.H, others)
         sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
+        sx, sy = magnetic_snap(nx, ny, self.W, self.H, others, sw=sw, sh=sh)
         sx, sy = clamp_to_screen(sx, sy, self.W, self.H, sw, sh)
 
         # Ghost preview window
@@ -465,6 +465,15 @@ class BaseWidget:
         THRESH = 6
 
         guides = []
+
+        # Screen centre guides
+        cx_snap = sw // 2 - self.W // 2
+        cy_snap = sh // 2 - self.H // 2
+        if abs(sx - cx_snap) <= THRESH:
+            guides.append(("v", sw // 2))
+        if abs(sy - cy_snap) <= THRESH:
+            guides.append(("h", sh // 2))
+
         for ox, oy, ow, oh in others:
             if abs(sx - ox) <= THRESH:
                 guides.append(("v", ox))

@@ -185,6 +185,7 @@ class GroupWidget(BaseWidget):
         cell_h = _th.CELL_H
         icon_sz = _th.ICON_SZ
 
+        _tile_bg_cache: dict = {}  # (tw, th, fill_hex) → PhotoImage, shared within this frame
         for i, app in enumerate(apps):
             col = i % cols; row = i // cols
             ax  = _th.PAD + col * cell_w
@@ -199,9 +200,9 @@ class GroupWidget(BaseWidget):
             if PIL_OK:
                 S  = 2
                 tw, th = cell_w - TILE_GAP, cell_h - TILE_GAP
-                img = Image.new("RGBA", (tw*S, th*S), (0,0,0,0))
-                d   = ImageDraw.Draw(img)
                 if is_hov or is_drag:
+                    img = Image.new("RGBA", (tw*S, th*S), (0,0,0,0))
+                    d   = ImageDraw.Draw(img)
                     fill  = tuple(list(_hex_rgb(t.hov)) + [255])
                     outl  = tuple(list(_hex_rgb(t.accent)) + [255])
                     bw    = 3*S   # thick enough to see clearly
@@ -209,12 +210,19 @@ class GroupWidget(BaseWidget):
                     d.rounded_rectangle([ins, ins, tw*S-1-ins, th*S-1-ins],
                                          radius=TILE_R*S,
                                          fill=fill, outline=outl, width=bw)
+                    photo = ImageTk.PhotoImage(img.resize((tw, th), Image.LANCZOS))
                 else:
-                    fill = tuple(list(_hex_rgb(t.btn_h)) + [255])
-                    d.rounded_rectangle([2, 2, tw*S-3, th*S-3],
-                                         radius=TILE_R*S,
-                                         fill=fill, outline=None)
-                photo = ImageTk.PhotoImage(img.resize((tw, th), Image.LANCZOS))
+                    cache_key = (tw, th, t.btn_h)
+                    if cache_key not in _tile_bg_cache:
+                        img = Image.new("RGBA", (tw*S, th*S), (0,0,0,0))
+                        d   = ImageDraw.Draw(img)
+                        fill = tuple(list(_hex_rgb(t.btn_h)) + [255])
+                        d.rounded_rectangle([2, 2, tw*S-3, th*S-3],
+                                             radius=TILE_R*S,
+                                             fill=fill, outline=None)
+                        _tile_bg_cache[cache_key] = ImageTk.PhotoImage(
+                            img.resize((tw, th), Image.LANCZOS))
+                    photo = _tile_bg_cache[cache_key]
                 self._refs.append(photo)
                 self.cv.create_image(ax + TILE_GAP//2, ay + TILE_GAP//2,
                                      image=photo, anchor="nw")
