@@ -385,10 +385,12 @@ class SettingsScreen:
         self._section(p, t, "Color Preset")
         pf = tk.Frame(p, bg=t.bg)
         pf.pack(fill="x", padx=PAD, pady=(4, 12))
+        _NAME_MAP = {"RGB Flow": "Rainbow", "Theme Cycle": "Cycle"}
         current = self.mgr.data.get("theme_preset", "Dark Blue")
+        current = _NAME_MAP.get(current, current)   # normalise legacy names
         _preset_swatch_row(pf, t, current, self._apply_preset)
 
-        if current in ("RGB Flow", "Theme Cycle"):
+        if current in ("RGB Flow", "Theme Cycle", "RGB", "Cycle", "Rainbow"):
             self._section(p, t, "Animation Speed")
             sf = tk.Frame(p, bg=t.bg)
             sf.pack(fill="x", padx=PAD, pady=(4, 12))
@@ -403,7 +405,7 @@ class SettingsScreen:
                          self._set_anim_speed_val).pack(
                 side="left", fill="x", expand=True, padx=8)
 
-        if current == "Theme Cycle":
+        if current in ("Theme Cycle", "Cycle"):
             self._section(p, t, "Themes to Cycle")
             df = tk.Frame(p, bg=t.bg)
             df.pack(fill="x", padx=PAD, pady=(4, 12))
@@ -785,7 +787,7 @@ class SettingsScreen:
         """Swatch grid — click anywhere on a tile to toggle it in/out of the cycle."""
         import theme as _th
 
-        animated   = {"RGB Flow", "Theme Cycle"}
+        animated   = {"RGB Flow", "Theme Cycle", "RGB", "Cycle", "Rainbow"}
         candidates = [n for n in _th.PRESETS if n not in animated]
         # name → (swatch_frame, check_label, name_label) for in-place updates
         refs: dict[str, tuple] = {}
@@ -857,10 +859,11 @@ class SettingsScreen:
                     w.bind("<Button-1>", lambda e, n=name: _toggle(n))
 
     def _apply_preset(self, name: str) -> None:
-        if name in ("RGB Flow", "Theme Cycle"):
+        _animated = {"RGB Flow", "Theme Cycle", "RGB", "Cycle", "Rainbow"}
+        if name in _animated:
             self.mgr.data["theme_preset"] = name
             config.save(self.mgr.data)
-            self.mgr.rgb_start("cycle" if name == "Theme Cycle" else "flow")
+            self.mgr.rgb_start("cycle" if name in ("Theme Cycle", "Cycle") else "flow")
             self._rebuild()
             return
         self.mgr.rgb_stop()
