@@ -91,6 +91,7 @@ class Manager:
         self._add_picker:     tk.Toplevel | None = None
         self._add_picker_t          = None   # theme at last add-picker recolor
         self._add_picker_accent     = None   # direct ref to accent bar frame
+        self.overlay_screen         = None   # welcome / changelog screen (live-recolored)
         # Support both current and legacy preset names
         _preset = self.data.get("theme_preset", "")
         if _preset in ("Rainbow", "Cycle", "RGB Flow", "Theme Cycle"):
@@ -423,14 +424,18 @@ class Manager:
 
     # ── Settings ───────────────────────────────────────────
 
-    def open_settings(self) -> None:
+    def open_settings(self, tab: str = "appearance", scroll_to: int | None = None) -> None:
         if self.settings_screen:
-            try: self.settings_screen.win.lift()
+            try:
+                self.settings_screen.win.lift()
+                # If already open on a different tab, switch to requested one
+                if tab != self.settings_screen._tab:
+                    self.settings_screen._switch(tab)
             except: pass
             return
         import traceback
         try:
-            self.settings_screen = SettingsScreen(self)
+            self.settings_screen = SettingsScreen(self, initial_tab=tab, scroll_to=scroll_to)
         except Exception as e:
             print("SETTINGS ERROR:")
             traceback.print_exc()
@@ -534,6 +539,9 @@ class Manager:
             self.apply_theme()
             if self.settings_screen:
                 try: self.settings_screen._live_recolor(t)
+                except Exception: pass
+            if self.overlay_screen:
+                try: self.overlay_screen._live_recolor(t)
                 except Exception: pass
             if self._add_picker and self._add_picker_t:
                 try:
@@ -675,6 +683,7 @@ class Manager:
     # ── Add picker (+ button) ──────────────────────────────
 
     def show_add_picker(self) -> None:
+        import theme as _th
         t = config.get_theme(self.data)
         dlg = tk.Toplevel(self.root)
         dlg.overrideredirect(True)
@@ -786,15 +795,18 @@ class Manager:
                 dot = tk.Frame(card, bg=t.accent, width=7, height=7)
                 dot.place(relx=1.0, rely=0.0, anchor="ne", x=-6, y=6)
 
-            def _enter(e, c=card, bg=t.hov, bdr=t.accent):
-                c.config(bg=bg, highlightbackground=bdr)
+            def _enter(e, c=card):
+                _bg = _th.active.hov
+                c.config(bg=_bg, highlightbackground=_th.active.accent)
                 for w in c.winfo_children():
-                    try: _set_bg(w, bg)
+                    try: _set_bg(w, _bg)
                     except: pass
-            def _leave(e, c=card, bg=card_bg, bdr=card_bdr):
-                c.config(bg=bg, highlightbackground=bdr)
+            def _leave(e, c=card, _on=on):
+                _bg  = _th.active.hov    if _on else _th.active.btn
+                _bdr = _th.active.accent if _on else _th.active.border
+                c.config(bg=_bg, highlightbackground=_bdr)
                 for w in c.winfo_children():
-                    try: _set_bg(w, bg)
+                    try: _set_bg(w, _bg)
                     except: pass
             def _set_bg(widget, bg):
                 widget.config(bg=bg)
@@ -862,7 +874,8 @@ class Manager:
         m.add_separator()
         m.add_command(label="✕  Delete widget", command=lambda: self.delete_group(group["id"]))
         m.add_separator()
-        m.add_command(label="⚙  Settings",     command=self.open_settings)
+        m.add_command(label="⚙  Settings",
+                      command=lambda gid=group["id"]: self.open_settings("widgets", scroll_to=gid))
         m.add_command(label="⏻  Quit",         command=self._quit)
         m.tk_popup(e.x_root, e.y_root)
 

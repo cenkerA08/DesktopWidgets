@@ -164,9 +164,11 @@ class SettingsScreen:
         ("⚙  System",     "system"),
     ]
 
-    def __init__(self, mgr: "Manager") -> None:
+    def __init__(self, mgr: "Manager", initial_tab: str = "appearance",
+                 scroll_to: int | None = None) -> None:
         self.mgr = mgr
-        self._tab = "appearance"
+        self._tab = initial_tab
+        self._scroll_to_widget = scroll_to
         self._scroll_pos = 0.0
         t = config.get_theme(mgr.data)
         sw = mgr.root.winfo_screenwidth()
@@ -216,8 +218,14 @@ class SettingsScreen:
     def _live_recolor(self, new_t) -> None:
         """Swap theme colours across all child widgets without rebuilding.
         Called by the animation loop — zero flicker, no widget recreation."""
+        # Direct refs: always current, bypass color-map lookup entirely
+        for widget, attr, field in getattr(self, "_direct_refs", []):
+            try: widget.configure(**{attr: getattr(new_t, field)})
+            except Exception: pass
+
         old_t = getattr(self, "_built_t", None)
         if old_t is None:
+            self._built_t = new_t
             return
         # Build a hex→hex replacement map for colours that actually changed
         color_map: dict[str, str] = {}
@@ -247,21 +255,33 @@ class SettingsScreen:
         self._update_scrollbar()  # keep thumb colour in sync with animated theme
 
     def _build(self, t):
+        import theme as _th
         self._built_t = t       # record which theme this layout was built with
+        self._direct_refs = []  # (widget, attr, theme_field) — updated directly each tick
         for w in self.win.winfo_children():
             w.destroy()
 
         hdr = tk.Frame(self.win, bg=t.hdr, height=48)
         hdr.pack(fill="x"); hdr.pack_propagate(False)
-        tk.Label(hdr, text="Settings", font=("Segoe UI", 13, "bold"),
-                 bg=t.hdr, fg=t.txt).pack(side="left", padx=20, pady=12)
+        hdr_title = tk.Label(hdr, text="Settings", font=("Segoe UI", 13, "bold"),
+                             bg=t.hdr, fg=t.txt)
+        hdr_title.pack(side="left", padx=20, pady=12)
         close_lbl = tk.Label(hdr, text="✕", font=("Segoe UI", 12),
                              bg=t.hdr, fg=t.txt2, cursor="hand2", padx=14, pady=10)
         close_lbl.pack(side="right")
         close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
-        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
+        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=_th.active.hdr, fg=_th.active.txt2))
         close_lbl.bind("<ButtonRelease-1>", lambda e: self.close())
-        tk.Frame(self.win, bg=t.accent, height=2).pack(fill="x")
+        _accent_line = tk.Frame(self.win, bg=t.accent, height=2)
+        _accent_line.pack(fill="x")
+        self._direct_refs += [
+            (hdr,          "bg", "hdr"),
+            (hdr_title,    "bg", "hdr"),
+            (hdr_title,    "fg", "txt"),
+            (close_lbl,    "bg", "hdr"),
+            (close_lbl,    "fg", "txt2"),
+            (_accent_line, "bg", "accent"),
+        ]
 
         body = tk.Frame(self.win, bg=t.bg)
         body.pack(fill="both", expand=True)
@@ -282,18 +302,27 @@ class SettingsScreen:
             fg_nav = t.txt if is_active else t.txt2
             row = tk.Frame(sidebar, bg=bg_nav, cursor="hand2")
             row.pack(fill="x")
-            tk.Frame(row, bg=t.accent if is_active else bg_nav,
-                     width=3).pack(side="left", fill="y")
+            indicator = tk.Frame(row, bg=t.accent if is_active else bg_nav, width=3)
+            indicator.pack(side="left", fill="y")
             lbl = tk.Label(row, text=label,
                            font=("Segoe UI", 10, "bold" if is_active else "normal"),
                            bg=bg_nav, fg=fg_nav, cursor="hand2", anchor="w",
                            padx=14, pady=12)
             lbl.pack(fill="x")
-            if not is_active:
+            if is_active:
+                # Register active item elements for direct live-color updates
+                self._direct_refs += [
+                    (row,       "bg", "bg"),
+                    (indicator, "bg", "accent"),
+                    (lbl,       "bg", "bg"),
+                    (lbl,       "fg", "txt"),
+                ]
+            else:
+                # Use theme.active so hover restores current (not build-time) colors
                 def _enter(e, r=row, l=lbl):
-                    r.config(bg=t.btn); l.config(bg=t.btn, fg=t.txt)
-                def _leave(e, r=row, l=lbl, b=bg_nav, f=fg_nav):
-                    r.config(bg=b); l.config(bg=b, fg=f)
+                    r.config(bg=_th.active.btn); l.config(bg=_th.active.btn, fg=_th.active.txt)
+                def _leave(e, r=row, l=lbl):
+                    r.config(bg=_th.active.hdr); l.config(bg=_th.active.hdr, fg=_th.active.txt2)
                 row.bind("<Enter>", _enter); lbl.bind("<Enter>", _enter)
                 row.bind("<Leave>", _leave); lbl.bind("<Leave>", _leave)
             row.bind("<ButtonRelease-1>", lambda e, k=key: self._switch(k))
@@ -375,6 +404,23 @@ class SettingsScreen:
         if self._tab == "appearance": self._tab_appearance(t)
         elif self._tab == "widgets":  self._tab_widgets(t)
         elif self._tab == "system":   self._tab_system(t)
+        # Scroll to a specific widget row after layout is complete
+        if getattr(self, "_scroll_to_widget", None):
+            self._canvas.after(80, self._do_scroll_to_widget)
+
+    def _do_scroll_to_widget(self):
+        target = getattr(self, "_widget_anchors", {}).get(self._scroll_to_widget)
+        if not target:
+            return
+        try:
+            self._scroll_inner.update_idletasks()
+            y = target.winfo_y()
+            total_h = self._scroll_inner.winfo_reqheight()
+            frac = max(0.0, min(1.0, y / max(1, total_h)))
+            self._canvas.yview_moveto(frac)
+            self._scroll_pos = frac
+        except Exception:
+            pass
 
     # ── Appearance ─────────────────────────────────────────
 
@@ -476,10 +522,12 @@ class SettingsScreen:
     # ── Widgets ────────────────────────────────────────────
 
     def _tab_widgets(self, t):
+        import theme as _th
         p = self._scroll_inner
         PAD = 20
         sw = self.mgr.root.winfo_screenwidth()
         sh = self.mgr.root.winfo_screenheight()
+        self._widget_anchors: dict = {}  # group_id → Frame, for scroll-to
 
         self._section(p, t, "Add Widget")
         add_grid = tk.Frame(p, bg=t.bg)
@@ -511,27 +559,19 @@ class SettingsScreen:
                      bg=t.btn, fg=t.txt2).pack()
 
             def _enter(e, c=card, i=inner):
-                c.config(bg=t.hov, highlightbackground=t.accent)
-
+                c.config(bg=_th.active.hov, highlightbackground=_th.active.accent)
                 def _set(w):
-                    try:
-                        w.config(bg=t.hov)
-                    except:
-                        pass
+                    try: w.config(bg=_th.active.hov)
+                    except: pass
                     for ch in w.winfo_children(): _set(ch)
-
                 _set(i)
 
             def _leave(e, c=card, i=inner):
-                c.config(bg=t.btn, highlightbackground=t.border)
-
+                c.config(bg=_th.active.btn, highlightbackground=_th.active.border)
                 def _set(w):
-                    try:
-                        w.config(bg=t.btn)
-                    except:
-                        pass
+                    try: w.config(bg=_th.active.btn)
+                    except: pass
                     for ch in w.winfo_children(): _set(ch)
-
                 _set(i)
 
             for w in [card, inner] + list(inner.winfo_children()):
@@ -542,11 +582,13 @@ class SettingsScreen:
         for col in range(3):
             add_grid.columnconfigure(col, weight=1)
 
-        # Rest of the method continues unchanged...
         self._section(p, t, "Organizers")
         for g in self.mgr.data["groups"]:
             gw = self.mgr.wins.get(g["id"])
             if not gw: continue
+            anchor = tk.Frame(p, bg=t.bg, height=1)
+            anchor.pack(fill="x")
+            self._widget_anchors[g["id"]] = anchor
             self._widget_row(p, t, g, gw, sw, sh)
 
         # Stats+
@@ -784,22 +826,22 @@ class SettingsScreen:
         # No rebuild — animation loop picks this up on next tick
 
     def _theme_cycle_ui(self, parent, t) -> None:
-        """Swatch grid — click anywhere on a tile to toggle it in/out of the cycle."""
+        """Chip grid — click a tile to toggle it in/out of the cycle."""
         import theme as _th
 
         animated   = {"RGB Flow", "Theme Cycle", "RGB", "Cycle", "Rainbow"}
         candidates = [n for n in _th.PRESETS if n not in animated]
-        # name → (swatch_frame, check_label, name_label) for in-place updates
+        # name → (chip_frame, strip_frame, name_label)
         refs: dict[str, tuple] = {}
 
-        PER_ROW = 5
-        SW_W, SW_H, COL_W = 46, 30, 58
+        PER_ROW = 4
+        CHIP_W, CHIP_H = 72, 52
 
         def _toggle(n: str) -> None:
             cur = list(self.mgr.data.get("cycle_themes", _th.CYCLE_THEMES_DEFAULT))
             if n in cur:
                 if len(cur) <= 1:
-                    return          # keep at least 1 theme
+                    return
                 cur.remove(n)
                 sel = False
             else:
@@ -807,55 +849,49 @@ class SettingsScreen:
                 sel = True
             self.mgr.data["cycle_themes"] = cur
             config.save(self.mgr.data)
-            # Update only the clicked tile — no rebuild
             if n in refs:
-                sw, chk, lbl = refs[n]
-                sw.config(
-                    highlightbackground=t.accent if sel else t.border,
+                chip, strip, lbl = refs[n]
+                chip.config(
+                    highlightbackground=_th.active.accent if sel else _th.active.border,
                     highlightthickness=2 if sel else 1,
                 )
-                chk.config(fg=t.accent if sel else _th.PRESETS[n].bg)
-                lbl.config(fg=t.txt if sel else t.txt2)
+                strip.config(bg=_th.active.accent if sel else _th.PRESETS[n].bg)
+                lbl.config(fg=_th.PRESETS[n].txt)
 
         active = self.mgr.data.get("cycle_themes", _th.CYCLE_THEMES_DEFAULT)
 
         for row_start in range(0, len(candidates), PER_ROW):
             row_frame = tk.Frame(parent, bg=t.bg)
-            row_frame.pack(anchor="w", pady=(0, 4))
+            row_frame.pack(anchor="w", pady=(0, 8))
             for name in candidates[row_start:row_start + PER_ROW]:
                 preset   = _th.PRESETS[name]
                 selected = name in active
 
-                col = tk.Frame(row_frame, bg=t.bg, width=COL_W, cursor="hand2")
-                col.pack_propagate(False)
-                col.pack(side="left")
+                # Outer chip — uses the preset's own bg so it looks like that theme
+                chip = tk.Frame(row_frame, bg=preset.bg,
+                                highlightbackground=t.accent if selected else t.border,
+                                highlightthickness=2 if selected else 1,
+                                cursor="hand2", width=CHIP_W, height=CHIP_H)
+                chip.pack_propagate(False)
+                chip.pack(side="left", padx=(0, 8))
 
-                swatch = tk.Frame(col, bg=preset.bg, width=SW_W, height=SW_H,
-                                  highlightbackground=t.accent if selected else t.border,
-                                  highlightthickness=2 if selected else 1,
-                                  cursor="hand2")
-                swatch.place(relx=0.5, rely=0.0, anchor="n", y=2)
+                # Thin accent strip at top (theme's own accent color)
+                tk.Frame(chip, bg=preset.accent, height=4).pack(fill="x")
 
-                dot = tk.Frame(swatch, bg=preset.accent, width=10, height=3)
-                dot.place(relx=0.5, rely=0.82, anchor="center")
+                # Selection indicator strip at bottom — settings accent when selected
+                strip = tk.Frame(chip, bg=t.accent if selected else preset.bg, height=3)
+                strip.pack(fill="x", side="bottom")
 
-                # Checkmark always present; invisible (fg=swatch bg) when not selected
-                chk = tk.Label(swatch, text="✓", font=("Segoe UI", 7, "bold"),
-                               bg=preset.bg,
-                               fg=t.accent if selected else preset.bg)
-                chk.place(relx=0.92, rely=0.12, anchor="ne")
-
-                short = name if len(name) <= 9 else name[:8] + "…"
-                lbl = tk.Label(col, text=short, font=("Segoe UI", 7),
-                               bg=t.bg, fg=t.txt if selected else t.txt2,
+                # Theme name centered in the middle
+                short = name if len(name) <= 10 else name[:9] + "…"
+                lbl = tk.Label(chip, text=short, font=("Segoe UI", 7, "bold"),
+                               bg=preset.bg, fg=preset.txt,
                                anchor="center", cursor="hand2")
-                lbl.place(relx=0.5, rely=1.0, anchor="s", y=-1)
-                col.config(height=SW_H + 18)
+                lbl.pack(fill="both", expand=True)
 
-                refs[name] = (swatch, chk, lbl)
+                refs[name] = (chip, strip, lbl)
 
-                # Bind every part of the tile so there are no dead zones
-                for w in (col, swatch, dot, chk, lbl):
+                for w in (chip, strip, lbl):
                     w.bind("<Button-1>", lambda e, n=name: _toggle(n))
 
     def _apply_preset(self, name: str) -> None:
