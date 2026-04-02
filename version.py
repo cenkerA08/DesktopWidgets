@@ -3,7 +3,7 @@ version.py — Single source of truth for the app version.
 Bump this before every release.
 """
 
-VERSION = "1.0.41"
+VERSION = "1.0.43"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"
@@ -67,9 +67,14 @@ CHANGELOG: dict[str, list[str]] = {
         "screen centre snap when moving widgets",
         "reduced RAM usage",
     ],
-    "1.0.41": [
+    "1.0.42": [
         "removed RGB and theme cycle for lighter performance",
         "reduced CPU and RAM usage",
+    ],
+    "1.0.43": [
+        "removed RGB and theme cycle for lighter performance",
+        "reduced CPU and RAM usage",
+        "new themes: Launch, Crimson",
     ],
 
 

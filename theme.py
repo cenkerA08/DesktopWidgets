@@ -272,6 +272,28 @@ PRESETS: dict[str, Theme] = {
         stat_font="Consolas",
     ),
 
+    # Deep space black + rocket-flame red — matches the dark space wallpaper
+    "Launch": Theme(
+        bg="#08090e", hdr="#05060a", border="#1a1a2e",
+        hov="#0f1020", btn="#0c0d1a", btn_h="#141528",
+        accent="#cc1a28", ok="#2a6fd4",
+        txt="#e8eaf2", txt2="#4a5280", txt3="#8890b8",
+        warn="#d45010", danger="#ff1a30",
+        up_col="#2a6fd4", dn_col="#cc1a28",
+        stat_font="Consolas",
+    ),
+
+    # Pure black bg + vivid red — high contrast
+    "Crimson": Theme(
+        bg="#0a0606", hdr="#060404", border="#280a0a",
+        hov="#180606", btn="#140505", btn_h="#1e0808",
+        accent="#e0101e", ok="#e0101e",
+        txt="#f5eaea", txt2="#7a3030", txt3="#c07070",
+        warn="#d44010", danger="#ff1030",
+        up_col="#e0101e", dn_col="#ff4444",
+        stat_font="Consolas",
+    ),
+
 }
 
 active: Theme = Theme()
