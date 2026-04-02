@@ -4,7 +4,6 @@ Shown once when the user launches the app for the very first time.
 """
 from __future__ import annotations
 import tkinter as tk
-import theme as _th
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -91,14 +90,12 @@ class WelcomeScreen:
         self.win.bind("<Escape>", lambda e: self._finish())
         self.PW, self.PH = PW, PH
         self._t = t
-        self._built_t = t
 
         self.bg.update_idletasks()
         self.win.lift(self.bg)
         self.win.focus_force()
         self.win.grab_set()
 
-        mgr.overlay_screen = self
         self._build()
 
     # ── Fade backdrop ──────────────────────────────────────
@@ -159,8 +156,8 @@ class WelcomeScreen:
                             bg=t.hdr, fg=t.txt2, cursor="hand2",
                             padx=20, pady=14)
             skip.pack(side="left")
-            skip.bind("<Enter>", lambda e: skip.config(fg=_th.active.txt))
-            skip.bind("<Leave>", lambda e: skip.config(fg=_th.active.txt2))
+            skip.bind("<Enter>", lambda e: skip.config(fg=t.txt))
+            skip.bind("<Leave>", lambda e: skip.config(fg=t.txt2))
             skip.bind("<ButtonRelease-1>", lambda e: self._finish())
 
         # Next / Get started
@@ -188,34 +185,7 @@ class WelcomeScreen:
         self._step += 1
         self._build()
 
-    def _live_recolor(self, new_t) -> None:
-        old_t = getattr(self, "_built_t", None)
-        if old_t is None:
-            self._built_t = new_t
-            return
-        color_map: dict[str, str] = {}
-        for k, old_v in old_t.to_dict().items():
-            if isinstance(old_v, str) and old_v.startswith("#"):
-                new_v = getattr(new_t, k, old_v)
-                if old_v.lower() != new_v.lower():
-                    color_map[old_v.lower()] = new_v
-        if not color_map:
-            return
-        def _walk(w):
-            for attr in ("bg", "fg", "highlightbackground", "activebackground", "activeforeground"):
-                try:
-                    cur = w.cget(attr)
-                    rep = color_map.get(cur.lower() if cur else "")
-                    if rep: w.configure(**{attr: rep})
-                except Exception: pass
-            for child in w.winfo_children(): _walk(child)
-        _walk(self.win)
-        self._built_t = new_t
-        self._t = new_t   # keep _t in sync so _build() on Next uses current colors
-
     def _finish(self):
-        try: self.mgr.overlay_screen = None
-        except: pass
         try: self.win.grab_release()
         except: pass
         try: self.bg.destroy()

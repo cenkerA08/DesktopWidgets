@@ -215,49 +215,8 @@ class SettingsScreen:
         except:
             self.close()
 
-    def _live_recolor(self, new_t) -> None:
-        """Swap theme colours across all child widgets without rebuilding.
-        Called by the animation loop — zero flicker, no widget recreation."""
-        # Direct refs: always current, bypass color-map lookup entirely
-        for widget, attr, field in getattr(self, "_direct_refs", []):
-            try: widget.configure(**{attr: getattr(new_t, field)})
-            except Exception: pass
-
-        old_t = getattr(self, "_built_t", None)
-        if old_t is None:
-            self._built_t = new_t
-            return
-        # Build a hex→hex replacement map for colours that actually changed
-        color_map: dict[str, str] = {}
-        for k, old_v in old_t.to_dict().items():
-            if isinstance(old_v, str) and old_v.startswith("#"):
-                new_v = getattr(new_t, k, old_v)
-                if old_v.lower() != new_v.lower():
-                    color_map[old_v.lower()] = new_v
-
-        if not color_map:
-            return
-
-        def _walk(widget):
-            for attr in ("bg", "fg", "highlightbackground", "activebackground"):
-                try:
-                    cur = widget.cget(attr)
-                    replacement = color_map.get(cur.lower() if cur else "")
-                    if replacement:
-                        widget.configure(**{attr: replacement})
-                except Exception:
-                    pass
-            for child in widget.winfo_children():
-                _walk(child)
-
-        _walk(self.win)
-        self._built_t = new_t   # next call diffs from the now-current state
-        self._update_scrollbar()  # keep thumb colour in sync with animated theme
-
     def _build(self, t):
         import theme as _th
-        self._built_t = t       # record which theme this layout was built with
-        self._direct_refs = []  # (widget, attr, theme_field) — updated directly each tick
         for w in self.win.winfo_children():
             w.destroy()
 
@@ -270,18 +229,9 @@ class SettingsScreen:
                              bg=t.hdr, fg=t.txt2, cursor="hand2", padx=14, pady=10)
         close_lbl.pack(side="right")
         close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
-        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=_th.active.hdr, fg=_th.active.txt2))
+        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
         close_lbl.bind("<ButtonRelease-1>", lambda e: self.close())
-        _accent_line = tk.Frame(self.win, bg=t.accent, height=2)
-        _accent_line.pack(fill="x")
-        self._direct_refs += [
-            (hdr,          "bg", "hdr"),
-            (hdr_title,    "bg", "hdr"),
-            (hdr_title,    "fg", "txt"),
-            (close_lbl,    "bg", "hdr"),
-            (close_lbl,    "fg", "txt2"),
-            (_accent_line, "bg", "accent"),
-        ]
+        tk.Frame(self.win, bg=t.accent, height=2).pack(fill="x")
 
         body = tk.Frame(self.win, bg=t.bg)
         body.pack(fill="both", expand=True)
@@ -309,20 +259,11 @@ class SettingsScreen:
                            bg=bg_nav, fg=fg_nav, cursor="hand2", anchor="w",
                            padx=14, pady=12)
             lbl.pack(fill="x")
-            if is_active:
-                # Register active item elements for direct live-color updates
-                self._direct_refs += [
-                    (row,       "bg", "bg"),
-                    (indicator, "bg", "accent"),
-                    (lbl,       "bg", "bg"),
-                    (lbl,       "fg", "txt"),
-                ]
-            else:
-                # Use theme.active so hover restores current (not build-time) colors
+            if not is_active:
                 def _enter(e, r=row, l=lbl):
-                    r.config(bg=_th.active.btn); l.config(bg=_th.active.btn, fg=_th.active.txt)
+                    r.config(bg=t.btn); l.config(bg=t.btn, fg=t.txt)
                 def _leave(e, r=row, l=lbl):
-                    r.config(bg=_th.active.hdr); l.config(bg=_th.active.hdr, fg=_th.active.txt2)
+                    r.config(bg=t.hdr); l.config(bg=t.hdr, fg=t.txt2)
                 row.bind("<Enter>", _enter); lbl.bind("<Enter>", _enter)
                 row.bind("<Leave>", _leave); lbl.bind("<Leave>", _leave)
             row.bind("<ButtonRelease-1>", lambda e, k=key: self._switch(k))
@@ -431,31 +372,8 @@ class SettingsScreen:
         self._section(p, t, "Color Preset")
         pf = tk.Frame(p, bg=t.bg)
         pf.pack(fill="x", padx=PAD, pady=(4, 12))
-        _NAME_MAP = {"RGB Flow": "Rainbow", "Theme Cycle": "Cycle"}
         current = self.mgr.data.get("theme_preset", "Dark Blue")
-        current = _NAME_MAP.get(current, current)   # normalise legacy names
         _preset_swatch_row(pf, t, current, self._apply_preset)
-
-        if current in ("RGB Flow", "Theme Cycle", "RGB", "Cycle", "Rainbow"):
-            self._section(p, t, "Animation Speed")
-            sf = tk.Frame(p, bg=t.bg)
-            sf.pack(fill="x", padx=PAD, pady=(4, 12))
-            cur_val = int(self.mgr.data.get("anim_speed_val", 5))
-            row = tk.Frame(sf, bg=t.bg)
-            row.pack(fill="x")
-            tk.Label(row, text="Slow", font=("Segoe UI", 8),
-                     bg=t.bg, fg=t.txt2).pack(side="left")
-            tk.Label(row, text="Fast", font=("Segoe UI", 8),
-                     bg=t.bg, fg=t.txt2).pack(side="right")
-            _flat_slider(row, t, 1, 10, cur_val,
-                         self._set_anim_speed_val).pack(
-                side="left", fill="x", expand=True, padx=8)
-
-        if current in ("Theme Cycle", "Cycle"):
-            self._section(p, t, "Themes to Cycle")
-            df = tk.Frame(p, bg=t.bg)
-            df.pack(fill="x", padx=PAD, pady=(4, 12))
-            self._theme_cycle_ui(df, t)
 
         self._section(p, t, "Icon Size")
         icon_frame = tk.Frame(p, bg=t.bg)
@@ -559,17 +477,17 @@ class SettingsScreen:
                      bg=t.btn, fg=t.txt2).pack()
 
             def _enter(e, c=card, i=inner):
-                c.config(bg=_th.active.hov, highlightbackground=_th.active.accent)
+                c.config(bg=t.hov, highlightbackground=t.accent)
                 def _set(w):
-                    try: w.config(bg=_th.active.hov)
+                    try: w.config(bg=t.hov)
                     except: pass
                     for ch in w.winfo_children(): _set(ch)
                 _set(i)
 
             def _leave(e, c=card, i=inner):
-                c.config(bg=_th.active.btn, highlightbackground=_th.active.border)
+                c.config(bg=t.btn, highlightbackground=t.border)
                 def _set(w):
-                    try: w.config(bg=_th.active.btn)
+                    try: w.config(bg=t.btn)
                     except: pass
                     for ch in w.winfo_children(): _set(ch)
                 _set(i)
@@ -820,89 +738,7 @@ class SettingsScreen:
     def _rename_widget(self, g: dict) -> None:
         self.mgr.rename_group(g); self._rebuild()
 
-    def _set_anim_speed_val(self, val: int) -> None:
-        self.mgr.data["anim_speed_val"] = val
-        config.save(self.mgr.data)
-        # No rebuild — animation loop picks this up on next tick
-
-    def _theme_cycle_ui(self, parent, t) -> None:
-        """Chip grid — click a tile to toggle it in/out of the cycle."""
-        import theme as _th
-
-        animated   = {"RGB Flow", "Theme Cycle", "RGB", "Cycle", "Rainbow"}
-        candidates = [n for n in _th.PRESETS if n not in animated]
-        # name → (chip_frame, strip_frame, name_label)
-        refs: dict[str, tuple] = {}
-
-        PER_ROW = 4
-        CHIP_W, CHIP_H = 72, 52
-
-        def _toggle(n: str) -> None:
-            cur = list(self.mgr.data.get("cycle_themes", _th.CYCLE_THEMES_DEFAULT))
-            if n in cur:
-                if len(cur) <= 1:
-                    return
-                cur.remove(n)
-                sel = False
-            else:
-                cur.append(n)
-                sel = True
-            self.mgr.data["cycle_themes"] = cur
-            config.save(self.mgr.data)
-            if n in refs:
-                chip, strip, lbl = refs[n]
-                chip.config(
-                    highlightbackground=_th.active.accent if sel else _th.active.border,
-                    highlightthickness=2 if sel else 1,
-                )
-                strip.config(bg=_th.active.accent if sel else _th.PRESETS[n].bg)
-                lbl.config(fg=_th.PRESETS[n].txt)
-
-        active = self.mgr.data.get("cycle_themes", _th.CYCLE_THEMES_DEFAULT)
-
-        for row_start in range(0, len(candidates), PER_ROW):
-            row_frame = tk.Frame(parent, bg=t.bg)
-            row_frame.pack(anchor="w", pady=(0, 8))
-            for name in candidates[row_start:row_start + PER_ROW]:
-                preset   = _th.PRESETS[name]
-                selected = name in active
-
-                # Outer chip — uses the preset's own bg so it looks like that theme
-                chip = tk.Frame(row_frame, bg=preset.bg,
-                                highlightbackground=t.accent if selected else t.border,
-                                highlightthickness=2 if selected else 1,
-                                cursor="hand2", width=CHIP_W, height=CHIP_H)
-                chip.pack_propagate(False)
-                chip.pack(side="left", padx=(0, 8))
-
-                # Thin accent strip at top (theme's own accent color)
-                tk.Frame(chip, bg=preset.accent, height=4).pack(fill="x")
-
-                # Selection indicator strip at bottom — settings accent when selected
-                strip = tk.Frame(chip, bg=t.accent if selected else preset.bg, height=3)
-                strip.pack(fill="x", side="bottom")
-
-                # Theme name centered in the middle
-                short = name if len(name) <= 10 else name[:9] + "…"
-                lbl = tk.Label(chip, text=short, font=("Segoe UI", 7, "bold"),
-                               bg=preset.bg, fg=preset.txt,
-                               anchor="center", cursor="hand2")
-                lbl.pack(fill="both", expand=True)
-
-                refs[name] = (chip, strip, lbl)
-
-                for w in (chip, strip, lbl):
-                    w.bind("<Button-1>", lambda e, n=name: _toggle(n))
-
     def _apply_preset(self, name: str) -> None:
-        _animated = {"RGB Flow", "Theme Cycle", "RGB", "Cycle", "Rainbow"}
-        if name in _animated:
-            self.mgr.data["theme_preset"] = name
-            config.save(self.mgr.data)
-            self.mgr.rgb_start("cycle" if name in ("Theme Cycle", "Cycle") else "flow")
-            self._rebuild()
-            return
-        self.mgr.rgb_stop()
         preset = PRESETS[name]
         self.mgr.data["theme"] = preset.to_dict()
         self.mgr.data["theme_preset"] = name

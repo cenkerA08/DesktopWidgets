@@ -4,7 +4,6 @@ Shown once on first launch after an update.
 """
 from __future__ import annotations
 import tkinter as tk
-import theme as _th
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,14 +38,11 @@ class ChangelogScreen:
         self.win.geometry(f"{PW}x{PH}+{px}+{py}")
         self.win.bind("<Escape>", lambda e: self._close())
 
-        self._built_t = t
-
         self.bg.update_idletasks()
         self.win.lift(self.bg)
         self.win.focus_force()
         self.win.grab_set()
 
-        mgr.overlay_screen = self
         self._build(t, version, notes)
 
     # ── Fade ───────────────────────────────────────────────
@@ -79,7 +75,7 @@ class ChangelogScreen:
                              padx=16, pady=14)
         close_lbl.pack(side="right")
         close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
-        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=_th.active.hdr, fg=_th.active.txt2))
+        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
         close_lbl.bind("<ButtonRelease-1>", lambda e: self._close())
 
         # Accent line
@@ -126,33 +122,7 @@ class ChangelogScreen:
 
     # ── Close ──────────────────────────────────────────────
 
-    def _live_recolor(self, new_t) -> None:
-        old_t = getattr(self, "_built_t", None)
-        if old_t is None:
-            self._built_t = new_t
-            return
-        color_map: dict[str, str] = {}
-        for k, old_v in old_t.to_dict().items():
-            if isinstance(old_v, str) and old_v.startswith("#"):
-                new_v = getattr(new_t, k, old_v)
-                if old_v.lower() != new_v.lower():
-                    color_map[old_v.lower()] = new_v
-        if not color_map:
-            return
-        def _walk(w):
-            for attr in ("bg", "fg", "highlightbackground", "activebackground", "activeforeground"):
-                try:
-                    cur = w.cget(attr)
-                    rep = color_map.get(cur.lower() if cur else "")
-                    if rep: w.configure(**{attr: rep})
-                except Exception: pass
-            for child in w.winfo_children(): _walk(child)
-        _walk(self.win)
-        self._built_t = new_t
-
     def _close(self):
-        try: self.mgr.overlay_screen = None
-        except: pass
         try: self.win.grab_release()
         except: pass
         try: self.bg.destroy()

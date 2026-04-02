@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 import config
-from theme import CHROMA, MARGIN, CYCLE_THEMES_DEFAULT, ANIM_SPEEDS
+from theme import CHROMA, MARGIN
 from utils import (ask_string, ask_confirm, push_desktop, allow_dnd_from_explorer,
                    launch_app, task_exists, create_task, remove_task,
                    create_desktop_shortcut)
@@ -82,21 +82,7 @@ class Manager:
         if TRAY_OK:
             threading.Thread(target=self._tray_loop, daemon=True).start()
 
-        # Animated theme state
-        self._rgb_hue:        float = 0.0
-        self._rgb_running:    bool  = False
-        self._rgb_mode:       str   = "flow"
-        self._cycle_t:        int   = 0
-        self._last_anim_t           = None   # last rendered theme — dirty tracking
-        self._add_picker:     tk.Toplevel | None = None
-        self._add_picker_t          = None   # theme at last add-picker recolor
-        self._add_picker_accent     = None   # direct ref to accent bar frame
-        self.overlay_screen         = None   # welcome / changelog screen (live-recolored)
-        # Support both current and legacy preset names
-        _preset = self.data.get("theme_preset", "")
-        if _preset in ("Rainbow", "Cycle", "RGB Flow", "Theme Cycle"):
-            _mode = "cycle" if _preset in ("Cycle", "Theme Cycle") else "flow"
-            self.root.after(200, lambda m=_mode: self.rgb_start(m))
+        self._add_picker: tk.Toplevel | None = None
 
     # ── Widget creation ────────────────────────────────────
 
@@ -468,100 +454,6 @@ class Manager:
 
         _walk(win)
 
-    # ── RGB / Theme Cycle animation ────────────────────────
-
-    _RGB_TICK_MS = 60   # ms per tick (~16 fps — smoother transitions)
-
-    def rgb_start(self, mode: str = "flow") -> None:
-        """Start animated theme. mode: 'flow' (RGB hue) or 'cycle' (preset themes)."""
-        self._rgb_mode = mode
-        if not self._rgb_running:
-            self._rgb_running = True
-            self._rgb_tick()
-
-    def rgb_stop(self) -> None:
-        """Stop the animated theme."""
-        self._rgb_running = False
-
-    def _speed_params(self) -> tuple[float, int, int]:
-        """Return (rgb_deg, hold_ticks, blend_ticks) for the current speed setting."""
-        val = self.data.get("anim_speed_val", None)
-        if val is not None:
-            v     = max(1, min(10, int(val)))
-            deg   = 0.5 + (v - 1) * 0.6          # Rainbow: 0.5→5.9 deg/tick
-            hold  = max(10, 100 - (v - 1) * 10)  # hold: 100→10 ticks
-            blend = max(12,  48 - (v - 1) *  4)  # blend: 48→12 ticks (always ≥12 for smoothness)
-            return float(deg), int(hold), int(blend)
-        # Legacy string fallback
-        _legacy = {"slow": (1.125, 80, 40), "normal": (2.25, 50, 20), "fast": (4.5, 15, 12)}
-        return _legacy.get(self.data.get("anim_speed", "normal"), (2.25, 50, 20))
-
-    def _cycle_theme(self, hold: int, blend: int) -> "theme.Theme":
-        """Return the blended theme for the current cycle tick."""
-        import theme as _th
-        names = self.data.get("cycle_themes", CYCLE_THEMES_DEFAULT)
-        valid = [n for n in names if n in _th.PRESETS]
-        if not valid:
-            valid = list(CYCLE_THEMES_DEFAULT)
-        slot     = self._cycle_t % (hold + blend)
-        idx      = (self._cycle_t  // (hold + blend)) % len(valid)
-        next_idx = (idx + 1) % len(valid)
-        t1 = _th.PRESETS[valid[idx]]
-        t2 = _th.PRESETS[valid[next_idx]]
-        if slot < hold:
-            return t1
-        raw   = min(1.0, (slot - hold) / blend)
-        eased = raw * raw * (3.0 - 2.0 * raw)   # smoothstep — slow start/end, fast middle
-        return _th.lerp_themes(t1, t2, eased)
-
-    def _rgb_tick(self) -> None:
-        if not self._rgb_running:
-            return
-        import theme as _th
-        deg, hold, blend = self._speed_params()
-
-        if self._rgb_mode == "flow":
-            self._rgb_hue = (self._rgb_hue + deg) % 360.0
-            t = _th.rgb_theme_at_hue(self._rgb_hue)
-        else:  # cycle
-            t = self._cycle_theme(hold, blend)
-            self._cycle_t += 1
-
-        # ── Dirty tracking: only redraw when theme actually changed ──────
-        # During Cycle hold-phase the same theme object is returned every
-        # tick — skipping apply_theme() here cuts CPU by ~60-70 %.
-        changed = (t is not self._last_anim_t) and (t != self._last_anim_t)
-        self._last_anim_t = t
-
-        if changed:
-            self.data["theme"] = t.to_dict()
-            _th.active = t
-            self.apply_theme()
-            if self.settings_screen:
-                try: self.settings_screen._live_recolor(t)
-                except Exception: pass
-            if self.overlay_screen:
-                try: self.overlay_screen._live_recolor(t)
-                except Exception: pass
-            if self._add_picker and self._add_picker_t:
-                try:
-                    self._recolor_window(self._add_picker, self._add_picker_t, t)
-                except Exception:
-                    pass
-                self._add_picker_t = t  # always sync, even on partial walk
-
-        # Direct accent-bar update — bypasses color-map walk entirely
-        if self._add_picker_accent:
-            try:
-                self._add_picker_accent.config(bg=t.accent)
-            except Exception:
-                self._add_picker_accent = None
-
-        # Adaptive rate: poll slowly during hold (nothing to draw),
-        # use full frame rate during blend for smooth transitions.
-        next_ms = self._RGB_TICK_MS if changed else min(200, self._RGB_TICK_MS * 3)
-        self.root.after(next_ms, self._rgb_tick)
-
     def apply_theme(self) -> None:
         """Redraw all widgets after a theme change."""
         for gw in self.wins.values():
@@ -689,15 +581,11 @@ class Manager:
         dlg.overrideredirect(True)
         dlg.attributes("-topmost", True)
         dlg.configure(bg=t.bg)
-        self._add_picker        = dlg
-        self._add_picker_t      = t
-        self._add_picker_accent = None  # set below after frame is created
+        self._add_picker = dlg
 
         def _on_picker_destroy(e):
             if e.widget is dlg:
-                self._add_picker        = None
-                self._add_picker_t      = None
-                self._add_picker_accent = None
+                self._add_picker = None
         dlg.bind("<Destroy>", _on_picker_destroy)
         dw = 300
         sw = self.root.winfo_screenwidth()
@@ -714,9 +602,7 @@ class Manager:
         close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
         close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
         close_lbl.bind("<ButtonRelease-1>", lambda e: dlg.destroy())
-        _accent_bar = tk.Frame(dlg, bg=t.accent, height=2)
-        _accent_bar.pack(fill="x")
-        self._add_picker_accent = _accent_bar   # live-updated each tick
+        tk.Frame(dlg, bg=t.accent, height=2).pack(fill="x")
 
         # ── Widget cards ───────────────────────────────────
         options = [
@@ -796,14 +682,13 @@ class Manager:
                 dot.place(relx=1.0, rely=0.0, anchor="ne", x=-6, y=6)
 
             def _enter(e, c=card):
-                _bg = _th.active.hov
-                c.config(bg=_bg, highlightbackground=_th.active.accent)
+                c.config(bg=t.hov, highlightbackground=t.accent)
                 for w in c.winfo_children():
-                    try: _set_bg(w, _bg)
+                    try: _set_bg(w, t.hov)
                     except: pass
             def _leave(e, c=card, _on=on):
-                _bg  = _th.active.hov    if _on else _th.active.btn
-                _bdr = _th.active.accent if _on else _th.active.border
+                _bg  = t.hov    if _on else t.btn
+                _bdr = t.accent if _on else t.border
                 c.config(bg=_bg, highlightbackground=_bdr)
                 for w in c.winfo_children():
                     try: _set_bg(w, _bg)
