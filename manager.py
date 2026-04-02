@@ -472,14 +472,6 @@ class Manager:
         if self.focus:
             try: self.focus._apply_theme()
             except Exception: pass
-        # Add-picker: only recolor here when NOT animating (animation loop
-        # handles it per-tick to avoid doing the walk twice per frame).
-        if not self._rgb_running and self._add_picker and self._add_picker_t:
-            try:
-                t_now = config.get_theme(self.data)
-                self._recolor_window(self._add_picker, self._add_picker_t, t_now)
-                self._add_picker_t = t_now
-            except Exception: pass
 
     # ── Stats+ ─────────────────────────────────────────────
 
