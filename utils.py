@@ -445,6 +445,10 @@ def _extract(path: str, size: int):
         r = _shell_icon(path, size)
         if r: return r
         return _folder_tile(path, size)
+    if not os.path.exists(path):
+        new = _find_versioned_app(path)
+        if new:
+            path = new
     if WIN32_OK:
         r = _private_icon(path, size)
         if r: return r
@@ -592,7 +596,11 @@ def launch_app(path: str) -> None:
             tk.messagebox.showerror("Error", str(e))
         return
     if not os.path.exists(path):
-        tk.messagebox.showerror("Not found", f"File not found:\n{path}"); return
+        new = _find_versioned_app(path)
+        if new:
+            path = new
+        else:
+            tk.messagebox.showerror("Not found", f"File not found:\n{path}"); return
     try:
         if os.path.isdir(path):
             os.startfile(path)
@@ -657,6 +665,31 @@ def resolve_url(url_path: str) -> str | None:
     except Exception as e:
         print(f"[utils] resolve_url: {e}")
     return None
+
+def _find_versioned_app(path: str) -> str | None:
+    """If *path* no longer exists but sits in an app-X.Y.Z versioned folder
+    (e.g. Discord after a Squirrel self-update), find the same exe in the
+    newest sibling app-* folder."""
+    parent = os.path.dirname(path)
+    if not os.path.basename(parent).lower().startswith("app-"):
+        return None
+    grandparent = os.path.dirname(parent)
+    exe_name = os.path.basename(path)
+    try:
+        candidates = sorted(
+            (e for e in os.listdir(grandparent)
+             if e.lower().startswith("app-")
+             and os.path.isdir(os.path.join(grandparent, e))),
+            reverse=True,
+        )
+        for entry in candidates:
+            candidate = os.path.join(grandparent, entry, exe_name)
+            if os.path.exists(candidate):
+                return candidate
+    except OSError:
+        pass
+    return None
+
 
 def _resolve_updater(exe_path: str, args: str = "") -> str | None:
     if os.path.basename(exe_path).lower() not in ("update.exe", "squirrel.exe"):

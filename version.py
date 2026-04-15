@@ -3,7 +3,7 @@ version.py — Single source of truth for the app version.
 Bump this before every release.
 """
 
-VERSION = "1.0.43"
+VERSION = "1.0.44"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"
@@ -75,6 +75,10 @@ CHANGELOG: dict[str, list[str]] = {
         "removed RGB and theme cycle for lighter performance",
         "reduced CPU and RAM usage",
         "new themes: Launch, Crimson",
+    ],
+    "1.0.45": [
+        "Updated collapse logic, so it no longer pushes widgets from across the screen",
+        "Added logic to focus widgets so u can switch between widgets in focus screen"
     ],
 
 

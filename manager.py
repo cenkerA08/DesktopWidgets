@@ -215,8 +215,8 @@ class Manager:
 
     def reflow_after_collapse(self, changed_widget) -> None:
         """
-        After a widget collapses or expands, shift every widget that sits
-        below it (same x-band) by exactly the height delta.
+        After a widget collapses or expands, shift only the widgets that are
+        directly stacked below it (touching chain), not ones far below with a gap.
         """
         from theme import HDR_H
 
@@ -232,16 +232,18 @@ class Manager:
         if delta == 0:
             return
 
-        cx, cy, cw, _ = changed_widget.rect()
+        cx, cy, cw, ch = changed_widget.rect()
 
-        # Every widget whose x-band overlaps AND whose top is strictly below
-        # the changed widget's top edge gets shifted.
+        # Old bottom before the size change (H is already updated, delta = new−old)
+        old_bottom = cy + ch - delta
+
         all_widgets = (
             list(self.wins.values()) +
             [w for w in [self.statsplus_win, self.notes_win, self.media_win] if w] +
             list(self.docs_wins.values())
         )
 
+        # Collect candidates: x-overlapping widgets strictly below changed widget
         below = []
         for w in all_widgets:
             if w is changed_widget:
@@ -254,11 +256,28 @@ class Manager:
         if not below:
             return
 
-        # Sort so chained moves don't conflict:
-        # moving up → process top-first; moving down → process bottom-first
-        for w in sorted(below, key=lambda w: w.rect()[1], reverse=(delta < 0)):
+        # Chain cascade: walk downward, stop as soon as there's a gap.
+        # Only widgets that were touching the widget above them get moved.
+        below.sort(key=lambda w: w.rect()[1])
+        chain_bottom = old_bottom
+        to_move: list = []
+        for w in below:
             rx, ry, rw, rh = w.rect()
-            w.win.geometry(f"+{rx}+{ry + delta}")
+            if ry <= chain_bottom + MARGIN:
+                to_move.append(w)
+                chain_bottom = ry + rh   # advance chain to this widget's old bottom
+            else:
+                break                    # gap found — chain ends here
+
+        if not to_move:
+            return
+
+        sh = changed_widget.win.winfo_screenheight()
+        # Moving up → top-first; moving down → bottom-first (prevents stomping)
+        for w in sorted(to_move, key=lambda w: w.rect()[1], reverse=(delta < 0)):
+            rx, ry, rw, rh = w.rect()
+            ny = max(MARGIN, min(ry + delta, sh - rh - MARGIN))
+            w.win.geometry(f"+{rx}+{ny}")
             w._save_geometry()
 
     # ── App management ─────────────────────────────────────
