@@ -4,7 +4,8 @@ utils.py — Shared utilities: snapping, icon extraction, app launching,
 No circular imports — only imports theme and config.
 """
 from __future__ import annotations
-import os, sys, subprocess, ctypes, ctypes.wintypes, math
+import os, sys, subprocess, ctypes, ctypes.wintypes, math, tempfile
+import xml.etree.ElementTree as ET
 import tkinter as tk
 from tkinter import filedialog
 from theme import Theme, CHROMA, SNAP, MARGIN
@@ -721,15 +722,34 @@ def task_exists() -> bool:
 def create_task(exe_path: str) -> bool:
     try:
         username = os.environ.get("USERNAME", "User")
-        xml = f"""<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{username}</UserId><Delay>PT3S</Delay></LogonTrigger></Triggers>
-  <Principals><Principal><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
-  <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings>
-  <Actions><Exec><Command>{exe_path}</Command></Exec></Actions>
-</Task>"""
-        xp = os.path.join(os.environ.get("TEMP", ""), "dw_task.xml")
-        with open(xp, "w", encoding="utf-16") as f: f.write(xml)
+        ns = "http://schemas.microsoft.com/windows/2004/02/mit/task"
+        ET.register_namespace("", ns)
+        root = ET.Element(f"{{{ns}}}Task", {"version": "1.2"})
+        triggers = ET.SubElement(root, f"{{{ns}}}Triggers")
+        logon = ET.SubElement(triggers, f"{{{ns}}}LogonTrigger")
+        ET.SubElement(logon, f"{{{ns}}}Enabled").text = "true"
+        ET.SubElement(logon, f"{{{ns}}}UserId").text = username
+        ET.SubElement(logon, f"{{{ns}}}Delay").text = "PT3S"
+        principals = ET.SubElement(root, f"{{{ns}}}Principals")
+        principal = ET.SubElement(principals, f"{{{ns}}}Principal")
+        ET.SubElement(principal, f"{{{ns}}}LogonType").text = "InteractiveToken"
+        ET.SubElement(principal, f"{{{ns}}}RunLevel").text = "LeastPrivilege"
+        settings = ET.SubElement(root, f"{{{ns}}}Settings")
+        for key, value in (
+            ("MultipleInstancesPolicy", "IgnoreNew"),
+            ("DisallowStartIfOnBatteries", "false"),
+            ("StopIfGoingOnBatteries", "false"),
+            ("ExecutionTimeLimit", "PT0S"),
+            ("Priority", "7"),
+        ):
+            ET.SubElement(settings, f"{{{ns}}}{key}").text = value
+        actions = ET.SubElement(root, f"{{{ns}}}Actions")
+        exec_node = ET.SubElement(actions, f"{{{ns}}}Exec")
+        ET.SubElement(exec_node, f"{{{ns}}}Command").text = exe_path
+
+        fd, xp = tempfile.mkstemp(prefix="dw_task_", suffix=".xml")
+        os.close(fd)
+        ET.ElementTree(root).write(xp, encoding="utf-16", xml_declaration=True)
         r = subprocess.run(["schtasks", "/Create", "/TN", "DesktopWidget", "/XML", xp, "/F"],
                            capture_output=True, text=True, creationflags=0x08000000)
         try: os.remove(xp)

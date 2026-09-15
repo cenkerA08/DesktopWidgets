@@ -4,25 +4,22 @@ Checks GitHub for a newer release, downloads and installs it, then restarts.
 Only active inside a PyInstaller frozen build.
 """
 from __future__ import annotations
-import os, sys, json, shutil, tempfile, zipfile, subprocess
+import os, sys, json, shutil, tempfile, subprocess
 import urllib.request
 
+from safe_io import parse_sha256_text, safe_extract_zip, verify_sha256
+
 try:
-    from version import VERSION, GITHUB_REPO
+    from version import VERSION, GITHUB_REPO, compare_versions
 except ImportError:
     VERSION = "0.0.0"
     GITHUB_REPO = ""
+    def compare_versions(left: str, right: str) -> int:
+        return 0
 
 API_URL     = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 TIMEOUT     = 8
 UPDATE_FLAG = "--updated"
-
-
-def _parse_version(v: str) -> tuple[int, ...]:
-    try:
-        return tuple(int(x) for x in v.lstrip("v").strip().split("."))
-    except Exception:
-        return (0,)
 
 
 def _fetch_latest() -> dict | None:
@@ -45,12 +42,31 @@ def _find_zip(release: dict):
     return None, None
 
 
-def _download(url: str, dest: str) -> bool:
-    try:
-        urllib.request.urlretrieve(url, dest)
-        return os.path.isfile(dest) and os.path.getsize(dest) > 0
-    except Exception:
-        return False
+def _find_checksum(release: dict, zip_name: str):
+    wanted = {f"{zip_name}.sha256".lower(), "desktopwidget.sha256"}
+    for asset in release.get("assets", []):
+        name = asset.get("name", "")
+        if name.lower() in wanted or name.lower().endswith(".sha256"):
+            return asset.get("browser_download_url"), name
+    return None, None
+
+
+def _download(url: str, dest: str) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": "DesktopWidget-Updater"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as response, open(dest, "wb") as out:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+    if not os.path.isfile(dest) or os.path.getsize(dest) <= 0:
+        raise RuntimeError("Downloaded update is empty.")
+
+
+def _download_text(url: str) -> str:
+    req = urllib.request.Request(url, headers={"User-Agent": "DesktopWidget-Updater"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as response:
+        return response.read(64 * 1024).decode("utf-8", errors="replace")
 
 
 def _extract_and_replace(zip_path: str, install_dir: str) -> list[str]:
@@ -63,8 +79,7 @@ def _extract_and_replace(zip_path: str, install_dir: str) -> list[str]:
 
     tmp = tempfile.mkdtemp(prefix="dw_upd_")
     try:
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(tmp)
+        safe_extract_zip(zip_path, tmp)
 
         # Handle single top-level folder in zip
         entries = os.listdir(tmp)
@@ -113,6 +128,13 @@ def _write_swap_bat(install_dir: str, pending: list, exe_path: str) -> str:
     return bat
 
 
+def _log_update_error(message: str) -> None:
+    try:
+        print(f"[updater] {message}")
+    except Exception:
+        pass
+
+
 def check_and_apply() -> None:
     """Call from main.py before the UI starts."""
     if not getattr(sys, "frozen", False):
@@ -127,24 +149,44 @@ def check_and_apply() -> None:
         return
 
     tag = release.get("tag_name", "")
-    if _parse_version(tag) <= _parse_version(VERSION):
+    try:
+        if compare_versions(tag, VERSION) <= 0:
+            return   # already up to date
+    except Exception:
         return   # already up to date
 
     url, fname = _find_zip(release)
     if not url:
         return   # no zip asset
+    checksum_url, checksum_name = _find_checksum(release, fname)
+    if not checksum_url:
+        _log_update_error("Release has no SHA-256 checksum asset; refusing automatic update.")
+        return
 
     install_dir = os.path.dirname(sys.executable)
     exe_path    = sys.executable
-    tmp_zip     = os.path.join(tempfile.gettempdir(), fname)
 
-    if not _download(url, tmp_zip):
-        return
+    with tempfile.TemporaryDirectory(prefix="dw_upd_") as staging:
+        tmp_zip = os.path.join(staging, fname)
+        try:
+            checksum_text = _download_text(checksum_url)
+            expected_sha = parse_sha256_text(checksum_text, expected_filename=fname)
+            _download(url, tmp_zip)
+            actual_sha = verify_sha256(tmp_zip, expected_sha)
+            _log_update_error(f"Verified update SHA-256: {actual_sha}")
+        except Exception as e:
+            try:
+                os.remove(tmp_zip)
+            except Exception:
+                pass
+            _log_update_error(f"Update verification failed: {e}")
+            return
 
-    pending = _extract_and_replace(tmp_zip, install_dir)
-
-    try: os.remove(tmp_zip)
-    except Exception: pass
+        try:
+            pending = _extract_and_replace(tmp_zip, install_dir)
+        except Exception as e:
+            _log_update_error(f"Update extraction failed: {e}")
+            return
 
     if pending:
         # Some files were locked — use swap bat to finish after exit

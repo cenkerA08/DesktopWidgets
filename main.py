@@ -3,6 +3,7 @@ main.py - Entry point for Desktop Widget v8.
 Run: python main.py
 """
 import sys, os
+from pathlib import Path
 
 
 def _fix_tcltk():
@@ -21,19 +22,35 @@ def _fix_tcltk():
     if os.environ.get("TCL_LIBRARY") and os.environ.get("TK_LIBRARY"):
         return
 
-    # Inside the bundle: _MEIPASS is where PyInstaller unpacked everything.
-    base = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    bases = [
+        Path(getattr(sys, "_MEIPASS", "")),
+        Path(sys.executable).resolve().parent,
+        Path(sys.executable).resolve().parent / "_internal",
+    ]
+    candidates = []
+    for base in bases:
+        if base:
+            candidates.extend([
+                (base / "_tcl_data", base / "_tk_data"),
+                (base / "tcl", base / "tk"),
+                (base / "_internal" / "_tcl_data", base / "_internal" / "_tk_data"),
+            ])
 
-    # Search for init.tcl under the bundle directory
-    for root_dir, dirs, files in os.walk(base):
-        if "init.tcl" in files:
-            os.environ.setdefault("TCL_LIBRARY", root_dir)
-            break
+    for tcl_dir, tk_dir in candidates:
+        if not os.environ.get("TCL_LIBRARY") and (tcl_dir / "init.tcl").is_file():
+            os.environ["TCL_LIBRARY"] = str(tcl_dir)
+        if not os.environ.get("TK_LIBRARY") and (tk_dir / "tk.tcl").is_file():
+            os.environ["TK_LIBRARY"] = str(tk_dir)
+        if os.environ.get("TCL_LIBRARY") and os.environ.get("TK_LIBRARY"):
+            return
 
-    # Search for tk.tcl for TK_LIBRARY
+    base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
     for root_dir, dirs, files in os.walk(base):
-        if "tk.tcl" in files:
-            os.environ.setdefault("TK_LIBRARY", root_dir)
+        if not os.environ.get("TCL_LIBRARY") and "init.tcl" in files:
+            os.environ["TCL_LIBRARY"] = root_dir
+        if not os.environ.get("TK_LIBRARY") and "tk.tcl" in files:
+            os.environ["TK_LIBRARY"] = root_dir
+        if os.environ.get("TCL_LIBRARY") and os.environ.get("TK_LIBRARY"):
             break
 
 
@@ -58,6 +75,7 @@ def _maybe_create_shortcut() -> None:
         return
     try:
         import json, ctypes
+        from safe_io import atomic_write_json
         # Use AppData to track whether we've made a shortcut for this install path
         appdata  = os.environ.get("APPDATA", os.path.expanduser("~"))
         flag_dir = os.path.join(appdata, "DesktopWidget")
@@ -80,7 +98,7 @@ def _maybe_create_shortcut() -> None:
         from utils import create_desktop_shortcut
         ok = create_desktop_shortcut(exe_path, "DesktopWidget")
         if ok:
-            json.dump({"exe_path": exe_path}, open(flag_file, "w"))
+            atomic_write_json(flag_file, {"exe_path": exe_path})
     except Exception:
         pass  # never crash on shortcut failure
 
@@ -119,6 +137,7 @@ def main() -> None:
         app = Manager()
 
         import json
+        from safe_io import atomic_write_json
         appdata   = os.environ.get("APPDATA", os.path.expanduser("~"))
         os.makedirs(os.path.join(appdata, "DesktopWidget"), exist_ok=True)
 
@@ -130,7 +149,7 @@ def main() -> None:
             try: last_seen = json.load(open(ver_flag)).get("version", "")
             except: pass
         if last_seen != VERSION:
-            json.dump({"version": VERSION}, open(ver_flag, "w"))
+            atomic_write_json(ver_flag, {"version": VERSION})
             notes = CHANGELOG.get(VERSION, [])
             if notes and last_seen:  # only show changelog if this is an UPDATE not first run
                 from changelog_screen import ChangelogScreen
@@ -139,7 +158,7 @@ def main() -> None:
         # ── Welcome (first ever launch) ───────────────────
         wel_flag = os.path.join(appdata, "DesktopWidget", "welcomed.json")
         if not os.path.exists(wel_flag):
-            json.dump({"welcomed": True}, open(wel_flag, "w"))
+            atomic_write_json(wel_flag, {"welcomed": True})
             from welcome_screen import WelcomeScreen
             WelcomeScreen(app, on_done=lambda: None)
 

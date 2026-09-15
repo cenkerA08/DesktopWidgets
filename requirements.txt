@@ -1,6 +1,10 @@
 pillow
 psutil
 pywin32
+comtypes
 winsdk
 wmi
 requests
+pystray
+tkinterdnd2
+pyinstaller

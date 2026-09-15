@@ -5,6 +5,7 @@ No tkinter imports here — pure data.
 from __future__ import annotations
 import json, os, sys, copy
 from theme import Theme, PRESETS
+from safe_io import atomic_write_json
 
 # ── Data file location ─────────────────────────────────────
 if getattr(sys, "frozen", False):
@@ -152,8 +153,7 @@ def load() -> dict:
 
 def save(data: dict) -> None:
     try:
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        atomic_write_json(DATA_FILE, data, indent=2)
     except Exception as e:
         print(f"[config] save error: {e}")
 

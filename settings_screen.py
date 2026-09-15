@@ -11,6 +11,7 @@ import tkinter as tk
 from typing import TYPE_CHECKING
 from theme import Theme, PRESETS, HDR_H
 import config
+from version import VERSION
 
 if TYPE_CHECKING:
     from manager import Manager
@@ -173,7 +174,7 @@ class SettingsScreen:
         t = config.get_theme(mgr.data)
         sw = mgr.root.winfo_screenwidth()
         sh = mgr.root.winfo_screenheight()
-        PW, PH = 720, 560
+        PW, PH = min(760, max(640, sw - 80)), min(600, max(520, sh - 80))
         px, py = (sw - PW) // 2, (sh - PH) // 2
 
         self.bg = tk.Toplevel(mgr.root)
@@ -190,6 +191,7 @@ class SettingsScreen:
         self.win.attributes("-topmost", False)
         self.win.configure(bg=t.bg)
         self.win.geometry(f"{PW}x{PH}+{px}+{py}")
+        self.win.minsize(640, 520)
         self.win.bind("<Escape>", lambda e: self.close())
         self.PW, self.PH = PW, PH
 
@@ -242,9 +244,9 @@ class SettingsScreen:
         tk.Frame(body, bg=t.border, width=1).pack(side="left", fill="y")
 
         nav_items = [
-            ("🎨  Appearance", "appearance"),
-            ("🗂  Widgets",    "widgets"),
-            ("⚙  System",     "system"),
+            ("Appearance", "appearance"),
+            ("Widgets",    "widgets"),
+            ("System",     "system"),
         ]
         for label, key in nav_items:
             is_active = key == self._tab
@@ -719,8 +721,12 @@ class SettingsScreen:
         tk.Label(p, text=f"Saved to:  {config.DATA_FILE}",
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(
                  anchor="w", padx=PAD, pady=(4,0))
+        self._section(p, t, "Updates")
+        tk.Label(p, text="Automatic updates require a matching SHA-256 checksum asset.",
+                 font=("Segoe UI", 8), bg=t.bg, fg=t.txt2,
+                 wraplength=460, justify="left").pack(anchor="w", padx=PAD, pady=(4,0))
         self._section(p, t, "About")
-        tk.Label(p, text="Desktop Widget\nPython + tkinter",
+        tk.Label(p, text=f"DesktopWidget {VERSION}\nPython + tkinter",
                  font=("Segoe UI", 9), bg=t.bg, fg=t.txt2,
                  justify="left").pack(anchor="w", padx=PAD, pady=(4,0))
 

@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 *.pyc
 .Python
+.pytest_cache/
 
 # ── Virtual environments ──────────────────────────────────
 .venv/
@@ -24,6 +25,7 @@ data.json
 
 # ── Release zips ──────────────────────────────────────────
 *.zip
+*.sha256
 
 # ── IDE / editor ──────────────────────────────────────────
 .vscode/
