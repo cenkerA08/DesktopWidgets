@@ -46,4 +46,3 @@ $RECYCLE.BIN/
 # Never commit tokens or keys
 .env
 secrets.py
-release.bat

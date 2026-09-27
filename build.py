@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import re
 import os
 import shutil
 import subprocess
@@ -9,19 +11,8 @@ import sys
 import zipfile
 from pathlib import Path
 
-from safe_io import sha256_file, write_sha256_file
-from version import (
-    APP_NAME,
-    COMPANY_NAME,
-    FILE_DESCRIPTION,
-    GITHUB_REPO,
-    LEGAL_COPYRIGHT,
-    PRODUCT_NAME,
-    VERSION,
-    bump_semver,
-    parse_semver,
-    write_version,
-)
+from desktop_widgets.services.safe_io import sha256_file, write_sha256_file
+from desktop_widgets.version import APP_NAME, COMPANY_NAME, FILE_DESCRIPTION, GITHUB_REPO, LEGAL_COPYRIGHT, PRODUCT_NAME, VERSION, bump_semver, parse_semver, write_version
 
 PROJECT_DIR = Path(__file__).resolve().parent
 DIST_DIR = PROJECT_DIR / "dist"
@@ -30,6 +21,31 @@ SPEC_FILE = PROJECT_DIR / "DesktopWidget.spec"
 VERSION_INFO_FILE = BUILD_DIR / "version_info.txt"
 EXE_PATH = DIST_DIR / APP_NAME / f"{APP_NAME}.exe"
 TIMESTAMP_URL = "http://timestamp.digicert.com"
+NOTES_DIR = PROJECT_DIR / "release_notes"
+DRAFT_NOTES = NOTES_DIR / "next.md"
+
+
+def read_release_draft() -> tuple[str, str]:
+    text = DRAFT_NOTES.read_text(encoding="utf-8")
+    heading, _, body = text.partition("\n")
+    match = re.fullmatch(r"# DesktopWidget (\d+\.\d+\.\d+)", heading.strip())
+    if not match or not body.strip():
+        raise ValueError("Release notes need '# DesktopWidget X.Y.Z' and a non-empty body.")
+    return match.group(1), body.strip()
+
+
+def prepare_release(part: str = "patch") -> Path:
+    target = bump_semver(VERSION, part)
+    if DRAFT_NOTES.exists():
+        draft_version, _ = read_release_draft()
+        print(f"Existing draft targets {draft_version}: {DRAFT_NOTES}")
+        print("Your notes were kept. Edit or archive that draft before preparing another release.")
+        return DRAFT_NOTES
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    DRAFT_NOTES.write_text(f"# DesktopWidget {target}\n\n"
+                          "## Improvements\n\n- Describe your changes here.\n", encoding="utf-8")
+    print(f"Installed/source version: {VERSION}\nNext {part} release: {target}\nEdit: {DRAFT_NOTES}")
+    return DRAFT_NOTES
 
 
 def _run(cmd: list[str], *, cwd: Path = PROJECT_DIR, check: bool = True) -> subprocess.CompletedProcess:
@@ -101,8 +117,35 @@ VSVersionInfo(
     return VERSION_INFO_FILE
 
 
+def write_release_notes(version: str) -> Path:
+    """Bundle commit subjects since the last tag; no handwritten version table."""
+    body = "Improvements and fixes in this release."
+    try:
+        tag = subprocess.run(['git', 'describe', '--tags', '--abbrev=0'],
+                             cwd=PROJECT_DIR, capture_output=True, text=True)
+        revision = [f'{tag.stdout.strip()}..HEAD'] if tag.returncode == 0 else []
+        result = subprocess.run(['git', 'log', '--format=%s', '--no-merges', '-30', *revision],
+                                cwd=PROJECT_DIR, capture_output=True, text=True, encoding='utf-8')
+        if result.returncode == 0 and result.stdout.strip():
+            body = '\n'.join('- ' + line for line in result.stdout.splitlines())
+    except OSError:
+        pass
+    if DRAFT_NOTES.exists():
+        draft_version, draft_body = read_release_draft()
+        if draft_version == version:
+            body = draft_body
+    archived = NOTES_DIR / f'{version}.md'
+    if archived.exists():
+        body = archived.read_text(encoding='utf-8').partition('\n')[2].strip()
+    path = BUILD_DIR / 'release_notes.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({'version': version, 'body': body}), encoding='utf-8')
+    return path
+
+
 def write_spec(tcl_dir: Path | None, tk_dir: Path | None, version: str) -> None:
-    data_lines: list[str] = []
+    notes_path = write_release_notes(version)
+    data_lines: list[str] = [f"        (r'{notes_path}', '.'),"]
     if tcl_dir and tcl_dir.is_dir():
         data_lines.append(f"        (r'{tcl_dir}', '_tcl_data'),")
     if tk_dir and tk_dir.is_dir():
@@ -278,20 +321,21 @@ def github_release(version: str, zip_path: Path) -> None:
     try:
         import requests
     except ImportError:
-        print("Install requests to upload: pip install requests")
-        return
+        raise RuntimeError("Install requests to upload releases.")
 
     token = os.environ.get("GITHUB_TOKEN", "")
     if not token:
-        print("Set GITHUB_TOKEN env var to upload to GitHub.")
-        return
+        raise RuntimeError("Set GITHUB_TOKEN in your environment before releasing.")
 
     repo = GITHUB_REPO
     if not repo or repo.startswith("YOUR_"):
-        print("Set GITHUB_REPO in version.py first.")
-        return
+        raise RuntimeError("Set GITHUB_REPO in desktop_widgets/version.py first.")
 
     tag = f"v{version}"
+    metadata = json.loads((BUILD_DIR / 'release_notes.json').read_text(encoding='utf-8'))
+    if metadata.get('version') != version:
+        raise ValueError('Bundled patch notes do not match the release version.')
+    release_body = metadata['body']
     headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
     print(f"GitHub release {tag} -> {repo}")
 
@@ -301,20 +345,28 @@ def github_release(version: str, zip_path: Path) -> None:
         json={
             "tag_name": tag,
             "name": f"{APP_NAME} {tag}",
-            "body": f"{APP_NAME} {tag}",
-            "draft": False,
+            "body": release_body,
+            "draft": True,
             "prerelease": False,
-            "generate_release_notes": True,
+            "generate_release_notes": False,
         },
         timeout=(8, 30),
     )
     if release_response.status_code not in (200, 201):
-        print(f"Create release failed: {release_response.status_code} {release_response.text[:200]}")
-        return
+        # A failed asset upload may leave our draft behind; retry the same version.
+        existing = requests.get(f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
+                                headers=headers, timeout=(8, 30))
+        if existing.status_code != 200 or not existing.json().get("draft"):
+            raise RuntimeError(f"Could not create release {tag}: HTTP {release_response.status_code}")
+        release_response = existing
 
     upload_url = release_response.json()["upload_url"].split("{")[0]
     assets = [zip_path, zip_path.with_name("DesktopWidget.sha256")]
     for asset in assets:
+        for previous in release_response.json().get("assets", []):
+            if previous.get("name") == asset.name:
+                deleted = requests.delete(previous['url'], headers=headers, timeout=(8, 30))
+                deleted.raise_for_status()
         content_type = "application/zip" if asset.suffix.lower() == ".zip" else "text/plain"
         with open(asset, "rb") as f:
             upload_response = requests.post(
@@ -327,7 +379,12 @@ def github_release(version: str, zip_path: Path) -> None:
         if upload_response.status_code in (200, 201):
             print(f"Uploaded {asset.name}")
         else:
-            print(f"Upload failed for {asset.name}: {upload_response.status_code} {upload_response.text[:200]}")
+            raise RuntimeError(f"Upload failed for {asset.name}: HTTP {upload_response.status_code}. "
+                               "The release remains a draft; rerun the same release command to retry.")
+
+    published = requests.patch(release_response.json()['url'], headers=headers,
+                               json={'draft': False, 'body': release_body}, timeout=(8, 30))
+    published.raise_for_status()
 
     print(f"https://github.com/{repo}/releases/tag/{tag}")
 
@@ -335,6 +392,20 @@ def github_release(version: str, zip_path: Path) -> None:
 def release(part: str = "patch") -> None:
     old_version = VERSION
     new_version = bump_semver(old_version, part)
+    if not DRAFT_NOTES.exists():
+        raise RuntimeError("Prepare your notes first: python build.py --prepare-release")
+    draft_version, body = read_release_draft()
+    if draft_version == old_version:
+        new_version = old_version  # Retry an unfinished release without another bump.
+    elif draft_version != new_version:
+        raise ValueError(f"Notes target {draft_version}, but this command would release {new_version}. "
+                         "Choose the matching --minor/--major option or correct the draft heading.")
+    if 'Describe your changes here.' in body:
+        raise ValueError(f"Replace the placeholder patch notes in {DRAFT_NOTES} before releasing.")
+    if not os.environ.get('GITHUB_TOKEN'):
+        raise RuntimeError("Set GITHUB_TOKEN in your environment before releasing.")
+    if (NOTES_DIR / f'{new_version}.md').exists():
+        raise ValueError(f"Release {new_version} already has archived notes. Prepare a new version.")
     print(f"Bumping version {old_version} -> {new_version}")
     write_version(new_version)
     try:
@@ -344,6 +415,7 @@ def release(part: str = "patch") -> None:
         raise
     zip_path = make_zip(new_version)
     github_release(new_version, zip_path)
+    DRAFT_NOTES.replace(NOTES_DIR / f'{new_version}.md')
     print(f"Release workflow finished for {new_version}")
 
 
@@ -356,7 +428,9 @@ def _part_from_args(args: list[str]) -> str:
 
 
 if __name__ == "__main__":
-    if "--release" in sys.argv:
+    if "--prepare-release" in sys.argv:
+        prepare_release(_part_from_args(sys.argv))
+    elif "--release" in sys.argv:
         release(_part_from_args(sys.argv))
     else:
         print(f"Building version {VERSION} (no release)")

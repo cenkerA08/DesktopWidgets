@@ -43,10 +43,8 @@ class ContextMenu:
             h += SEP_H if item["type"] == "sep" else ITEM_H
         h += 8
 
-        sw = self._root.winfo_screenwidth()
-        sh = self._root.winfo_screenheight()
-        if x + w > sw: x = sw - w - 4
-        if y + h > sh: y = sh - h - 4
+        from desktop_widgets.services.screens import area_for, clamp
+        x, y = clamp(x, y, w, h, area_for(self._root, x, y), margin=4)
 
         self._win = tk.Toplevel(self._root)
         self._win.overrideredirect(True)

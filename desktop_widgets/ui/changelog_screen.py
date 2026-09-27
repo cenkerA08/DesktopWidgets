@@ -7,18 +7,18 @@ import tkinter as tk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 
 class ChangelogScreen:
     def __init__(self, mgr: "Manager", version: str, notes: list[str]) -> None:
         self.mgr = mgr
 
-        import config
+        import desktop_widgets.config as config
         t  = config.get_theme(mgr.data)
         sw = mgr.root.winfo_screenwidth()
         sh = mgr.root.winfo_screenheight()
-        PW, PH = 480, 360 + max(0, len(notes) - 4) * 28
+        PW, PH = 520, min(480, sh - 40)
         px, py = (sw - PW) // 2, (sh - PH) // 2
 
         # Backdrop
@@ -89,13 +89,13 @@ class ChangelogScreen:
                  font=("Segoe UI", 9, "bold"),
                  bg=t.bg, fg=t.txt2).pack(anchor="w", pady=(0, 10))
 
-        for note in notes:
-            row = tk.Frame(body, bg=t.bg)
-            row.pack(fill="x", pady=3)
-            tk.Frame(row, bg=t.accent, width=4, height=4).pack(
-                side="left", padx=(4, 10), pady=6)
-            tk.Label(row, text=note, font=("Segoe UI", 10),
-                     bg=t.bg, fg=t.txt, anchor="w").pack(side="left", fill="x")
+        from tkinter.scrolledtext import ScrolledText
+        text = ScrolledText(body, wrap="word", height=9, font=("Segoe UI", 10),
+                            bg=t.bg, fg=t.txt, relief="flat", borderwidth=0,
+                            highlightthickness=0, padx=4, pady=4)
+        text.pack(fill="both", expand=True)
+        text.insert("1.0", "\n".join(notes))
+        text.config(state="disabled")
 
         # ── Footer ────────────────────────────────────────
         tk.Frame(self.win, bg=t.border, height=1).pack(fill="x")

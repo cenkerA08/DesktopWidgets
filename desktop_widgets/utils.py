@@ -8,7 +8,7 @@ import os, sys, subprocess, ctypes, ctypes.wintypes, math, tempfile
 import xml.etree.ElementTree as ET
 import tkinter as tk
 from tkinter import filedialog
-from theme import Theme, CHROMA, SNAP, MARGIN
+from desktop_widgets.theme import Theme, CHROMA, SNAP, MARGIN
 
 try:
     from PIL import Image, ImageTk, ImageDraw
@@ -309,7 +309,8 @@ def magnetic_snap(x: int, y: int, w: int, h: int,
         if dy < best_dy:
             best_dy = dy; sy = cy_snap
 
-    return sx, sy
+    return (sx if best_dx <= threshold else snap_to_grid(x),
+            sy if best_dy <= threshold else snap_to_grid(y))
 
 def find_non_overlapping(x: int, y: int, w: int, h: int,
                          others: list[tuple[int,int,int,int]],
@@ -325,7 +326,7 @@ def find_non_overlapping(x: int, y: int, w: int, h: int,
 
 
 def reflow_push_down(dropped_x, dropped_y, dropped_w, dropped_h,
-                     all_widgets, sw, sh):
+                     all_widgets, sw, sh, origin=(0, 0)):
     """
     After a widget is dropped, push all overlapping widgets away.
     Cascades in the same direction — so pushing widget B down will also
@@ -333,6 +334,7 @@ def reflow_push_down(dropped_x, dropped_y, dropped_w, dropped_h,
     Returns a dict of {widget: (new_x, new_y)}.
     """
     MARGIN = 10
+    left, top = origin
 
     # Start with current positions
     positions = {}
@@ -375,7 +377,9 @@ def reflow_push_down(dropped_x, dropped_y, dropped_w, dropped_h,
     # Phase 2 — cascade: if a pushed widget now overlaps another,
     #           push that other in the SAME direction
     changed = True
-    while changed:
+    passes = 0
+    while changed and passes < max(1, len(positions) * 2):
+        passes += 1
         changed = False
         for widget, (axis, sign) in list(push_dirs.items()):
             ax, ay, aw, ah = positions[widget]
@@ -401,8 +405,9 @@ def reflow_push_down(dropped_x, dropped_y, dropped_w, dropped_h,
     # Clamp everything to screen
     for widget, pos in positions.items():
         bx, by, bw, bh = pos
-        pos[0] = max(MARGIN, min(bx, sw - bw - MARGIN))
-        pos[1] = max(MARGIN, min(by, sh - bh - MARGIN))
+        if widget in push_dirs:
+            pos[0] = max(left + MARGIN, min(bx, left + sw - bw - MARGIN))
+            pos[1] = max(top + MARGIN, min(by, top + sh - bh - MARGIN))
 
     return {w: (p[0], p[1]) for w, p in positions.items()}
 
@@ -415,7 +420,7 @@ _CACHE: dict[tuple, object] = {}
 _CACHE_MAX = 200
 
 def get_icon(path: str, size: int) -> object | None:
-    from config import URL_APPS
+    from desktop_widgets.config import URL_APPS
     key = (path, size)
     if key not in _CACHE:
         if len(_CACHE) >= _CACHE_MAX:
@@ -432,7 +437,7 @@ def clear_icon_cache(path: str) -> None:
             del _CACHE[k]
 
 def _extract(path: str, size: int):
-    from config import URL_APPS
+    from desktop_widgets.config import URL_APPS
     if not PIL_OK:
         return None
     if path in URL_APPS:
@@ -584,7 +589,7 @@ def _letter_tile(path: str, size: int):
 
 # ── App launching ──────────────────────────────────────────
 def launch_app(path: str) -> None:
-    from config import URL_APPS
+    from desktop_widgets.config import URL_APPS
     if path in URL_APPS:
         try: os.startfile(URL_APPS[path]["launch"])
         except Exception as e:
@@ -639,7 +644,7 @@ def resolve_lnk(lnk_path: str) -> str | None:
     return lnk_path
 
 def resolve_url(url_path: str) -> str | None:
-    from config import URL_APPS
+    from desktop_widgets.config import URL_APPS
     try:
         with open(url_path, encoding="utf-8", errors="ignore") as f:
             raw = f.read()
@@ -832,7 +837,7 @@ def _styled_button(parent, text: str, bg: str, fg: str,
 
 def ask_string(parent: tk.Misc, title: str, prompt: str,
                initial: str = "", theme: Theme | None = None) -> str | None:
-    from theme import Theme
+    from desktop_widgets.theme import Theme
     t = theme or Theme()
     result = [None]
 
@@ -890,7 +895,7 @@ def ask_string(parent: tk.Misc, title: str, prompt: str,
 
 
 def ask_confirm(parent: tk.Misc, message: str, theme: Theme | None = None) -> bool:
-    from theme import Theme
+    from desktop_widgets.theme import Theme
     t = theme or Theme()
     result = [False]
 

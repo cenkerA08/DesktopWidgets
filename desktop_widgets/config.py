@@ -4,8 +4,8 @@ No tkinter imports here — pure data.
 """
 from __future__ import annotations
 import json, os, sys, copy
-from theme import Theme, PRESETS
-from safe_io import atomic_write_json
+from desktop_widgets.theme import Theme, PRESETS
+from desktop_widgets.services.safe_io import atomic_write_json
 
 # ── Data file location ─────────────────────────────────────
 if getattr(sys, "frozen", False):
@@ -66,20 +66,28 @@ def _default() -> dict:
             "collapsed": False,
             "theme_override": None,
         },
-        "corner_radius": 0,
+        "corner_radius": 16,
+        "theme_preset": "Graphite",
+        "design_revision": 1,
         "resize_enabled": True,
     }
 
 
 def _migrate(d: dict) -> dict:
     """Bring old data format up to current version."""
+    if not d.get("design_revision"):
+        d["corner_radius"] = 16
+        d["design_revision"] = 1
+        if d.get("theme_preset", "Dark Blue") == "Dark Blue":
+            d["theme"] = Theme().to_dict()
+            d["theme_preset"] = "Graphite"
     # v1 → v2: add collapsed, theme_override to groups
     for g in d.get("groups", []):
         g.setdefault("collapsed", False)
         g.setdefault("theme_override", None)
         g.setdefault("apps", [])
-        g["x"] = max(0, g.get("x", 60))
-        g["y"] = max(0, g.get("y", 60))
+        g.setdefault("x", 60)
+        g.setdefault("y", 60)
         g.setdefault("cols", 5)
 
     # Add stats / network blocks if missing
@@ -160,7 +168,7 @@ def save(data: dict) -> None:
 
 def get_corner_radius(data: dict) -> int:
     """Return the global corner radius setting (0 = square, up to 16)."""
-    return int(data.get("corner_radius", 0))
+    return max(0, min(24, int(data.get("corner_radius", 16))))
 
 
 def get_theme(data: dict, override: dict | None = None) -> Theme:
@@ -169,7 +177,7 @@ def get_theme(data: dict, override: dict | None = None) -> Theme:
     override can now be a full preset dict (stored with a '__preset__' key)
     or None to use the global theme.
     """
-    from theme import PRESETS
+    from desktop_widgets.theme import PRESETS
     base = Theme.from_dict(data.get("theme", {}))
     if override:
         preset_name = override.get("__preset__")

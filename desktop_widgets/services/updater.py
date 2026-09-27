@@ -6,11 +6,12 @@ Only active inside a PyInstaller frozen build.
 from __future__ import annotations
 import os, sys, json, shutil, tempfile, subprocess
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
-from safe_io import parse_sha256_text, safe_extract_zip, verify_sha256
+from desktop_widgets.services.safe_io import parse_sha256_text, safe_extract_zip, verify_sha256
 
 try:
-    from version import VERSION, GITHUB_REPO, compare_versions
+    from desktop_widgets.version import VERSION, GITHUB_REPO, compare_versions
 except ImportError:
     VERSION = "0.0.0"
     GITHUB_REPO = ""
@@ -135,8 +136,8 @@ def _log_update_error(message: str) -> None:
         pass
 
 
-def check_and_apply() -> None:
-    """Call from main.py before the UI starts."""
+def check_for_update() -> dict | None:
+    """Read release metadata only; never download or install an update."""
     if not getattr(sys, "frozen", False):
         return   # source run — skip
     if UPDATE_FLAG in sys.argv:
@@ -163,6 +164,50 @@ def check_and_apply() -> None:
         _log_update_error("Release has no SHA-256 checksum asset; refusing automatic update.")
         return
 
+    return release
+
+
+def start_update_check(root, before_install=lambda: None) -> None:
+    """Check off-thread; ask on the Tk thread before any download or install."""
+    from tkinter import messagebox
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="update-check")
+    future = pool.submit(check_for_update)
+    pool.shutdown(wait=False)
+
+    def poll():
+        if not future.done():
+            root.after(150, poll)
+            return
+        try:
+            release = future.result()
+        except Exception as exc:
+            _log_update_error(str(exc))
+            return
+        if not release:
+            return
+        # Avoid stealing an active welcome/settings dialog's grab.
+        if root.grab_current():
+            root.after(1000, poll)
+            return
+        if messagebox.askyesno(
+                "Update available",
+                f"DesktopWidget {release['tag_name']} is available (installed: {VERSION}).\n\n"
+                "Download and install it now? The app will restart.\n"
+                "Choose No to keep using this version.", parent=root):
+            before_install()
+            if not apply_update(release):
+                messagebox.showerror("Update failed", "The update could not be installed. "
+                                     "Please try again next time you start the app.", parent=root)
+    root.after(150, poll)
+
+
+def apply_update(release: dict) -> bool:
+    """Install an update only after the UI has obtained consent."""
+    url, fname = _find_zip(release)
+    checksum_url, _ = _find_checksum(release, fname or "")
+    if not url or not checksum_url or not fname or os.path.basename(fname) != fname:
+        return False
+
     install_dir = os.path.dirname(sys.executable)
     exe_path    = sys.executable
 
@@ -180,13 +225,22 @@ def check_and_apply() -> None:
             except Exception:
                 pass
             _log_update_error(f"Update verification failed: {e}")
-            return
+            return False
 
         try:
             pending = _extract_and_replace(tmp_zip, install_dir)
         except Exception as e:
             _log_update_error(f"Update extraction failed: {e}")
-            return
+            return False
+
+    try:
+        from desktop_widgets.config import DATA_DIR
+        from desktop_widgets.services.safe_io import atomic_write_json
+        atomic_write_json(os.path.join(DATA_DIR, "release_notes.json"),
+                          {"version": release["tag_name"].lstrip("v"),
+                           "body": release.get("body") or ""})
+    except Exception as exc:
+        _log_update_error(f"Could not save release notes: {exc}")
 
     if pending:
         # Some files were locked — use swap bat to finish after exit

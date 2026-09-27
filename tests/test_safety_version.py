@@ -6,14 +6,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from safe_io import (
-    atomic_write_json,
-    parse_sha256_text,
-    safe_extract_zip,
-    sha256_file,
-    verify_sha256,
-)
-from version import bump_semver, compare_versions
+from desktop_widgets.services.safe_io import atomic_write_json, parse_sha256_text, safe_extract_zip, sha256_file, verify_sha256
+from desktop_widgets.version import bump_semver, compare_versions
 
 
 class VersionTests(unittest.TestCase):

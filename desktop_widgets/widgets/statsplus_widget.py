@@ -8,12 +8,12 @@ import subprocess, threading, time, math
 from typing import TYPE_CHECKING
 
 import tkinter as tk
-from theme import HDR_H
-from base_widget import BaseWidget
-import config
+from desktop_widgets.theme import HDR_H
+from desktop_widgets.widgets.base_widget import BaseWidget
+import desktop_widgets.config as config
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 try:
     import psutil

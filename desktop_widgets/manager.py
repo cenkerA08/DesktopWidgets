@@ -7,20 +7,18 @@ import os, sys, threading
 import tkinter as tk
 from tkinter import filedialog
 
-import config
-from theme import CHROMA, MARGIN
-from utils import (ask_string, ask_confirm, push_desktop, allow_dnd_from_explorer,
-                   launch_app, task_exists, create_task, remove_task,
-                   create_desktop_shortcut)
-from group_widget      import GroupWidget
-from statsplus_widget  import StatsPlusWidget
-from notes_widget      import NotesWidget
-from docs_widget       import DocsWidget
-from media_widget      import MediaWidget
-from context_menu      import ContextMenu
-from focus_overlay     import FocusOverlay
-from settings_screen   import SettingsScreen
-from tray_bar          import TrayBar
+import desktop_widgets.config as config
+from desktop_widgets.theme import CHROMA, MARGIN
+from desktop_widgets.utils import ask_string, ask_confirm, push_desktop, allow_dnd_from_explorer, launch_app, task_exists, create_task, remove_task, create_desktop_shortcut
+from desktop_widgets.widgets.group_widget import GroupWidget
+from desktop_widgets.widgets.statsplus_widget import StatsPlusWidget
+from desktop_widgets.widgets.notes_widget import NotesWidget
+from desktop_widgets.widgets.docs_widget import DocsWidget
+from desktop_widgets.widgets.media_widget import MediaWidget
+from desktop_widgets.ui.context_menu import ContextMenu
+from desktop_widgets.ui.focus_overlay import FocusOverlay
+from desktop_widgets.ui.settings_screen import SettingsScreen
+from desktop_widgets.ui.tray_bar import TrayBar
 
 try:
     from tkinterdnd2 import TkinterDnD
@@ -83,6 +81,25 @@ class Manager:
             threading.Thread(target=self._tray_loop, daemon=True).start()
 
         self._add_picker: tk.Toplevel | None = None
+        from desktop_widgets.services.screens import work_areas
+        self._screen_areas = work_areas(self.root)
+        self.root.after(2000, self._check_screens)
+
+    def _check_screens(self):
+        """Recover widgets after a display is removed or its work area changes."""
+        from desktop_widgets.services.screens import work_areas, area_for, clamp
+        areas = work_areas(self.root)
+        widgets = (list(self.wins.values()) + list(self.docs_wins.values()) +
+                   [w for w in (self.statsplus_win, self.notes_win, self.media_win) if w])
+        if areas != self._screen_areas and not any(w._mode for w in widgets):
+            self._screen_areas = areas
+            for widget in widgets:
+                x, y, w, h = widget.rect()
+                nx, ny = clamp(x, y, w, h, area_for(self.root, x, y, w, h))
+                if (nx, ny) != (x, y):
+                    widget.win.geometry(f"+{nx}+{ny}")
+                    widget._save_geometry()
+        self.root.after(2000, self._check_screens)
 
     # ── Widget creation ────────────────────────────────────
 
@@ -99,8 +116,8 @@ class Manager:
         Called when resize is disabled — snap every widget back to its
         content-driven natural size so nothing stays at a weird manual size.
         """
-        import theme as _th
-        from theme import HDR_H
+        import desktop_widgets.theme as _th
+        from desktop_widgets.theme import HDR_H
 
         for gw in self.wins.values():
             if gw._collapsed: continue
@@ -133,7 +150,7 @@ class Manager:
 
     def set_group_cols(self, gid: int, cols: int) -> None:
         """Change column count for a group widget and refresh its size."""
-        import theme as _th
+        import desktop_widgets.theme as _th
         cols = max(1, min(12, cols))
         group = next((g for g in self.data["groups"] if g["id"] == gid), None)
         if not group: return
@@ -181,7 +198,9 @@ class Manager:
         if delta == 0:
             return
 
-        cx, cy, cw, _ = changed_widget.rect()
+        cx, cy, cw, ch = changed_widget.rect()
+        from desktop_widgets.services.screens import area_for, clamp
+        area = area_for(self.root, cx, cy, cw, ch)
 
         all_widgets = (
             list(self.wins.values()) +
@@ -195,19 +214,18 @@ class Manager:
                 continue
             rx, ry, rw, rh = w.rect()
             x_overlap = rx < cx + cw and rx + rw > cx
-            if x_overlap and ry > cy:
+            if x_overlap and ry > cy and area_for(self.root, rx, ry, rw, rh) == area:
                 below.append(w)
 
         if not below:
             return
 
-        sh = changed_widget.win.winfo_screenheight()
         # Growing → top-first so each push doesn't stomp the next
         # Shrinking → bottom-first so each pull doesn't create a gap above
         for w in sorted(below, key=lambda w: w.rect()[1], reverse=(delta < 0)):
             rx, ry, rw, rh = w.rect()
             ny = ry + delta
-            ny = max(MARGIN, min(ny, sh - rh - MARGIN))
+            rx, ny = clamp(rx, ny, rw, rh, area)
             w.win.geometry(f"+{rx}+{ny}")
             w._save_geometry()
 
@@ -218,7 +236,7 @@ class Manager:
         After a widget collapses or expands, shift only the widgets that are
         directly stacked below it (touching chain), not ones far below with a gap.
         """
-        from theme import HDR_H
+        from desktop_widgets.theme import HDR_H
 
         # At call time toggle_collapse has already applied the new height.
         # _full_h is always the expanded height; H is the current (new) height.
@@ -233,6 +251,8 @@ class Manager:
             return
 
         cx, cy, cw, ch = changed_widget.rect()
+        from desktop_widgets.services.screens import area_for, clamp
+        area = area_for(self.root, cx, cy, cw, ch)
 
         # Old bottom before the size change (H is already updated, delta = new−old)
         old_bottom = cy + ch - delta
@@ -250,7 +270,7 @@ class Manager:
                 continue
             rx, ry, rw, rh = w.rect()
             x_overlap = rx < cx + cw and rx + rw > cx
-            if x_overlap and ry > cy:
+            if x_overlap and ry > cy and area_for(self.root, rx, ry, rw, rh) == area:
                 below.append(w)
 
         if not below:
@@ -272,11 +292,10 @@ class Manager:
         if not to_move:
             return
 
-        sh = changed_widget.win.winfo_screenheight()
         # Moving up → top-first; moving down → bottom-first (prevents stomping)
         for w in sorted(to_move, key=lambda w: w.rect()[1], reverse=(delta < 0)):
             rx, ry, rw, rh = w.rect()
-            ny = max(MARGIN, min(ry + delta, sh - rh - MARGIN))
+            rx, ny = clamp(rx, ry + delta, rw, rh, area)
             w.win.geometry(f"+{rx}+{ny}")
             w._save_geometry()
 
@@ -371,7 +390,7 @@ class Manager:
         sh = self.root.winfo_screenheight()
         # Find a free spot
         max_y = max((g.get("y", 60) for g in self.data["groups"]), default=60)
-        from utils import snap_to_grid
+        from desktop_widgets.utils import snap_to_grid
         g = {
             "id":      self.data["next_id"],
             "name":    name.strip(),
@@ -586,148 +605,12 @@ class Manager:
     # ── Add picker (+ button) ──────────────────────────────
 
     def show_add_picker(self) -> None:
-        import theme as _th
-        t = config.get_theme(self.data)
-        dlg = tk.Toplevel(self.root)
-        dlg.overrideredirect(True)
-        dlg.attributes("-topmost", True)
-        dlg.configure(bg=t.bg)
-        self._add_picker = dlg
-
-        def _on_picker_destroy(e):
-            if e.widget is dlg:
-                self._add_picker = None
-        dlg.bind("<Destroy>", _on_picker_destroy)
-        dw = 300
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-
-        # ── Header ─────────────────────────────────────────
-        hdr = tk.Frame(dlg, bg=t.hdr)
-        hdr.pack(fill="x")
-        tk.Label(hdr, text="Add Widget", font=("Segoe UI", 12, "bold"),
-                 bg=t.hdr, fg=t.txt, padx=16, pady=12).pack(side="left")
-        close_lbl = tk.Label(hdr, text="✕", font=("Segoe UI", 11),
-                             bg=t.hdr, fg=t.txt2, cursor="hand2", padx=14, pady=10)
-        close_lbl.pack(side="right")
-        close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
-        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
-        close_lbl.bind("<ButtonRelease-1>", lambda e: dlg.destroy())
-        tk.Frame(dlg, bg=t.accent, height=2).pack(fill="x")
-
-        # ── Widget cards ───────────────────────────────────
-        options = [
-            ("🗂", "App Folder",   "Group your apps",        "folder"),
-            ("📊", "Stats+",       "System metrics",         "statsplus"),
-            ("📝", "Notes",        "Sticky notes",           "notes"),
-            ("📁", "Files",        "Quick file access",      "docs"),
-            ("🎵", "Media",        "Now playing",            "media"),
-        ]
-
-        def is_on(key):
-            if key == "statsplus": return self.data.get("statsplus", {}).get("enabled", False)
-            if key == "notes":     return self.data.get("notes",     {}).get("enabled", False)
-            if key == "media":     return self.data.get("media",     {}).get("enabled", False)
-            return False
-
-        def make_cmd(key):
-            def cmd():
-                dlg.destroy()
-                if   key == "folder":    self.new_group_dialog()
-                elif key == "statsplus": self.toggle_statsplus()
-                elif key == "notes":     self.toggle_notes()
-                elif key == "docs":      self.new_docs_dialog()
-                elif key == "media":     self.toggle_media()
-            return cmd
-
-        grid = tk.Frame(dlg, bg=t.bg)
-        grid.pack(fill="x", padx=10, pady=10)
-
-        def _all_children(w):
-            yield w
-            for c in w.winfo_children():
-                yield from _all_children(c)
-
-        for i, (icon, label, desc, key) in enumerate(options):
-            on = is_on(key)
-            col = i % 2
-            row = i // 2
-
-            card_bg  = t.hov    if on else t.btn
-            card_bdr = t.accent if on else t.border
-
-            card = tk.Frame(grid, bg=card_bg,
-                            highlightbackground=card_bdr, highlightthickness=1,
-                            cursor="hand2")
-
-            # Last odd item spans full width
-            if i == len(options) - 1 and len(options) % 2 == 1:
-                card.grid(row=row, column=0, columnspan=2,
-                          sticky="ew", padx=4, pady=4)
-                inner = tk.Frame(card, bg=card_bg)
-                inner.pack(fill="x", padx=10, pady=8)
-                tk.Label(inner, text=icon, font=("Segoe UI", 18),
-                         bg=card_bg, fg=t.txt).pack(side="left", padx=(0, 8))
-                txt_f = tk.Frame(inner, bg=card_bg)
-                txt_f.pack(side="left")
-                tk.Label(txt_f, text=label, font=("Segoe UI", 10, "bold"),
-                         bg=card_bg, fg=t.txt, anchor="w").pack(anchor="w")
-                tk.Label(txt_f, text=desc, font=("Segoe UI", 8),
-                         bg=card_bg, fg=t.accent if on else t.txt2,
-                         anchor="w").pack(anchor="w")
-            else:
-                card.grid(row=row, column=col,
-                          sticky="nsew", padx=4, pady=4)
-                inner = tk.Frame(card, bg=card_bg)
-                inner.pack(fill="both", expand=True, padx=10, pady=10)
-                tk.Label(inner, text=icon, font=("Segoe UI", 22),
-                         bg=card_bg, fg=t.txt).pack()
-                tk.Label(inner, text=label, font=("Segoe UI", 10, "bold"),
-                         bg=card_bg, fg=t.txt).pack(pady=(4, 0))
-                tk.Label(inner, text="Active" if on else desc,
-                         font=("Segoe UI", 8),
-                         bg=card_bg, fg=t.accent if on else t.txt2).pack()
-
-            if on:
-                dot = tk.Frame(card, bg=t.accent, width=7, height=7)
-                dot.place(relx=1.0, rely=0.0, anchor="ne", x=-6, y=6)
-
-            def _enter(e, c=card):
-                c.config(bg=t.hov, highlightbackground=t.accent)
-                for w in c.winfo_children():
-                    try: _set_bg(w, t.hov)
-                    except: pass
-            def _leave(e, c=card, _on=on):
-                _bg  = t.hov    if _on else t.btn
-                _bdr = t.accent if _on else t.border
-                c.config(bg=_bg, highlightbackground=_bdr)
-                for w in c.winfo_children():
-                    try: _set_bg(w, _bg)
-                    except: pass
-            def _set_bg(widget, bg):
-                widget.config(bg=bg)
-                for child in widget.winfo_children():
-                    try: _set_bg(child, bg)
-                    except: pass
-
-            cmd = make_cmd(key)
-            for w in _all_children(card):
-                w.bind("<Enter>",           lambda e, en=_enter: en(e))
-                w.bind("<Leave>",           lambda e, lv=_leave: lv(e))
-                w.bind("<ButtonRelease-1>", lambda e, c=cmd: c())
-            card.bind("<Enter>",           lambda e, en=_enter: en(e))
-            card.bind("<Leave>",           lambda e, lv=_leave: lv(e))
-            card.bind("<ButtonRelease-1>", lambda e, c=cmd: c())
-
-        grid.columnconfigure(0, weight=1)
-        grid.columnconfigure(1, weight=1)
-
-        dlg.update_idletasks()
-        dh = dlg.winfo_reqheight()
-        dlg.geometry(f"{dw}x{dh}+{(sw-dw)//2}+{(sh-dh)//2}")
-        dlg.bind("<Escape>", lambda e: dlg.destroy())
-        dlg.focus_force()
-        dlg.grab_set()
+        if self._add_picker and self._add_picker.winfo_exists():
+            self._add_picker.lift()
+            return
+        from desktop_widgets.ui.add_widget_screen import AddWidgetScreen
+        picker = AddWidgetScreen(self)
+        self._add_picker = picker.win
 
     def lift_widgets(self) -> None:
         """Bring all widget windows to the front temporarily (e.g. for dialogs)."""

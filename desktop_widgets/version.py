@@ -1,6 +1,6 @@
 """
 version.py — Single source of truth for the app version.
-Bump this before every release.
+The release command bumps this automatically before building.
 """
 
 from __future__ import annotations
@@ -9,9 +9,9 @@ import re
 import sys
 from pathlib import Path
 
-from safe_io import atomic_write_text
+from desktop_widgets.services.safe_io import atomic_write_text
 
-VERSION = "1.0.45"
+VERSION = "1.0.46"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"
@@ -69,7 +69,7 @@ def write_version(new_version: str, path: str | Path | None = None) -> None:
         text,
         count=1,
     )
-    if updated == text:
+    if not re.search(r'^VERSION\s*=', text, re.MULTILINE):
         raise RuntimeError("Could not find VERSION assignment.")
     atomic_write_text(target, updated, encoding="utf-8")
 
@@ -97,7 +97,7 @@ def _main(argv: list[str]) -> int:
     return 0
 
 # What's new in each version — shown once on first launch after an update.
-# Add a new entry here every time you bump VERSION.
+# Legacy notes only. New release notes are generated from Git/GitHub automatically.
 CHANGELOG: dict[str, list[str]] = {
     "1.0.23": [
         "Welcome screen for new users",

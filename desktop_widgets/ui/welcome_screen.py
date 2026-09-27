@@ -7,7 +7,7 @@ import tkinter as tk
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 
 STEPS = [
@@ -65,7 +65,7 @@ class WelcomeScreen:
         self.on_done = on_done
         self._step   = 0
 
-        import config
+        import desktop_widgets.config as config
         t  = config.get_theme(mgr.data)
         sw = mgr.root.winfo_screenwidth()
         sh = mgr.root.winfo_screenheight()

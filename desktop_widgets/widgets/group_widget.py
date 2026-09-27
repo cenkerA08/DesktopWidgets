@@ -7,15 +7,14 @@ import os, tkinter as tk
 from tkinter import filedialog
 from typing import TYPE_CHECKING
 
-from theme import CHROMA, HDR_H, MIN_COLS, MAX_COLS, RSZ
-import theme as _th
-from base_widget import BaseWidget
-from utils import (get_icon, clear_icon_cache, clip, launch_app, ask_string, ask_confirm,
-                   resolve_lnk, resolve_url, allow_dnd_from_explorer, setup_wmdrop)
-import config
+from desktop_widgets.theme import CHROMA, HDR_H, MIN_COLS, MAX_COLS, RSZ
+import desktop_widgets.theme as _th
+from desktop_widgets.widgets.base_widget import BaseWidget
+from desktop_widgets.utils import get_icon, clear_icon_cache, clip, launch_app, ask_string, ask_confirm, resolve_lnk, resolve_url, allow_dnd_from_explorer, setup_wmdrop
+import desktop_widgets.config as config
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 try:
     from tkinterdnd2 import DND_FILES
@@ -119,13 +118,7 @@ class GroupWidget(BaseWidget):
         return HDR_H + rows * _th.CELL_H + _th.PAD * 2
 
     def place(self, x, y, collapsed=False, **_):
-        self.W = self._natural_w
-        self._full_h = self._natural_h
-        self._collapsed = collapsed
-        self.H = HDR_H if collapsed else self._full_h
-        self.win.geometry(f"{self.W}x{self.H}+{x}+{y}")
-        self.cv.config(width=self.W, height=self.H)
-        self.redraw()
+        super().place(x, y, w=self._natural_w, h=self._natural_h, collapsed=collapsed)
 
     def _refresh_size(self) -> None:
         old_h = self.H
@@ -154,9 +147,9 @@ class GroupWidget(BaseWidget):
 
         # ── Header ────────────────────────────────────────
         # Title centred
-        self.cv.create_text(ww // 2, HDR_H // 2,
-            text=self.group["name"],
-            font=("Segoe UI", 11, "bold"), fill=t.txt, anchor="center")
+        self.cv.create_text(HDR_H + 4, HDR_H // 2,
+            text=clip(self.group["name"], max(4, (ww-2*HDR_H)//8)),
+            font=("Segoe UI", 11, "bold"), fill=t.txt, anchor="w")
 
         # + button — top right, same hit zone as before
         plus_hov = False
@@ -185,7 +178,11 @@ class GroupWidget(BaseWidget):
         cell_h = _th.CELL_H
         icon_sz = _th.ICON_SZ
 
-        _tile_bg_cache: dict = {}  # (tw, th, fill_hex) → PhotoImage, shared within this frame
+        if not hasattr(self, "_tile_bg_cache"):
+            self._tile_bg_cache = {}
+        _tile_bg_cache = self._tile_bg_cache
+        if len(_tile_bg_cache) > 16:
+            _tile_bg_cache.clear()
         for i, app in enumerate(apps):
             col = i % cols; row = i // cols
             ax  = _th.PAD + col * cell_w
@@ -205,18 +202,18 @@ class GroupWidget(BaseWidget):
                     d   = ImageDraw.Draw(img)
                     fill  = tuple(list(_hex_rgb(t.hov)) + [255])
                     outl  = tuple(list(_hex_rgb(t.accent)) + [255])
-                    bw    = 3*S   # thick enough to see clearly
+                    bw    = S
                     ins   = bw // 2 + 1
                     d.rounded_rectangle([ins, ins, tw*S-1-ins, th*S-1-ins],
                                          radius=TILE_R*S,
                                          fill=fill, outline=outl, width=bw)
                     photo = ImageTk.PhotoImage(img.resize((tw, th), Image.LANCZOS))
                 else:
-                    cache_key = (tw, th, t.btn_h)
+                    cache_key = (tw, th, t.btn)
                     if cache_key not in _tile_bg_cache:
                         img = Image.new("RGBA", (tw*S, th*S), (0,0,0,0))
                         d   = ImageDraw.Draw(img)
-                        fill = tuple(list(_hex_rgb(t.btn_h)) + [255])
+                        fill = tuple(list(_hex_rgb(t.btn)) + [255])
                         d.rounded_rectangle([2, 2, tw*S-3, th*S-3],
                                              radius=TILE_R*S,
                                              fill=fill, outline=None)
@@ -257,7 +254,7 @@ class GroupWidget(BaseWidget):
             lbl_y = ay + cell_h - 14
             self.cv.create_text(cx, lbl_y,
                 text=clip(app["name"], 10),
-                font=("Segoe UI", 8),
+                font=("Segoe UI", 9),
                 fill=t.txt if is_hov else t.txt2,
                 anchor="center", width=cell_w - 8)
 

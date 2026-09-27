@@ -6,12 +6,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import tkinter as tk
-from theme import HDR_H
-from base_widget import BaseWidget
-import config
+from desktop_widgets.theme import HDR_H
+from desktop_widgets.widgets.base_widget import BaseWidget
+import desktop_widgets.config as config
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 
 class NotesWidget(BaseWidget):
@@ -51,7 +51,7 @@ class NotesWidget(BaseWidget):
 
     def _ensure_text_widget(self, t) -> None:
         SB_W = 6
-        PAD  = 6
+        PAD  = 16
         tx = PAD; ty = HDR_H + PAD
         tw = self.W - PAD * 2 - SB_W - 2
         th = self.H - HDR_H - PAD * 2
@@ -191,7 +191,7 @@ class NotesWidget(BaseWidget):
         finally: m.grab_release()
 
     def _clear(self) -> None:
-        from utils import ask_confirm
+        from desktop_widgets.utils import ask_confirm
         if ask_confirm(self.mgr.root, "Clear all note text?", theme=self._theme()):
             if self._text_widget:
                 self._text_widget.delete("1.0", "end")

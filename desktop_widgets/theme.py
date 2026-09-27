@@ -9,11 +9,11 @@ CHROMA = "#010203"
 
 SNAP        = 10
 MARGIN      = 10
-HDR_H       = 36
+HDR_H       = 44
 RSZ         = 14
 CELL_W      = 88
 CELL_H      = 90
-PAD         = 14
+PAD         = 18
 MIN_COLS    = 1
 MAX_COLS    = 12
 ICON_SZ     = 52
@@ -23,16 +23,16 @@ COLLAPSE_BTN_W = 28
 
 @dataclass
 class Theme:
-    bg:       str = "#1c1f26"
-    hdr:      str = "#14161c"
-    border:   str = "#3a3e4a"
-    hov:      str = "#2a2e3e"
-    btn:      str = "#2e3240"
-    btn_h:    str = "#3a3f58"
-    txt:      str = "#f0f0f0"
-    txt2:     str = "#9098aa"
+    bg:       str = "#181b24"
+    hdr:      str = "#181b24"
+    border:   str = "#343949"
+    hov:      str = "#30394f"
+    btn:      str = "#222735"
+    btn_h:    str = "#2c3345"
+    txt:      str = "#f3f5fc"
+    txt2:     str = "#a5aec2"
     txt3:     str = "#c8ccd6"
-    accent:   str = "#5b7cf8"
+    accent:   str = "#a6b4ff"
     ok:       str = "#5b7cf8"
     warn:     str = "#e0a050"
     danger:   str = "#e05c5c"
@@ -56,6 +56,24 @@ class Theme:
 
 
 PRESETS: dict[str, Theme] = {
+    "Graphite": Theme(),
+    "Aurora": Theme(
+        bg="#152421", hdr="#152421", border="#35504a", btn="#20352f",
+        btn_h="#2b463e", hov="#315448", accent="#8ae0bc", ok="#8ae0bc",
+        txt="#edf8f2", txt2="#a3bfb2", txt3="#c8e1d4"),
+    "Rose Quartz": Theme(
+        bg="#281e2b", hdr="#281e2b", border="#503b51", btn="#362b3b",
+        btn_h="#46354a", hov="#533e53", accent="#edb3d5", ok="#a9d8bc",
+        txt="#fbf0f7", txt2="#c4aabe", txt3="#e2c8db"),
+    "Ocean Mist": Theme(
+        bg="#17232f", hdr="#17232f", border="#354d61", btn="#223342",
+        btn_h="#2a4255", hov="#344f64", accent="#92d5ee", ok="#96dfcb",
+        txt="#eef7ff", txt2="#a2bed0", txt3="#c3dfed"),
+    "Porcelain": Theme(
+        bg="#f5f3ef", hdr="#f5f3ef", border="#d9d5cf", btn="#ebe7e0",
+        btn_h="#dedad3", hov="#e0e5f0", accent="#5268b5", ok="#34745e",
+        txt="#242833", txt2="#646976", txt3="#444b59", warn="#916021",
+        danger="#b04454", up_col="#5268b5", dn_col="#34745e"),
 
     # ── Neutral dark — the defaults ────────────────────────
 

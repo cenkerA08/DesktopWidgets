@@ -10,14 +10,14 @@ from typing import TYPE_CHECKING
 
 import tkinter as tk
 from tkinter import filedialog
-from theme import HDR_H, CHROMA
-import theme as _th
-from base_widget import BaseWidget
-from utils import clip, ask_string, ask_confirm
-import config
+from desktop_widgets.theme import HDR_H, CHROMA
+import desktop_widgets.theme as _th
+from desktop_widgets.widgets.base_widget import BaseWidget
+from desktop_widgets.utils import clip, ask_string, ask_confirm
+import desktop_widgets.config as config
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 try:
     from tkinterdnd2 import DND_FILES
@@ -133,13 +133,7 @@ class DocsWidget(BaseWidget):
         return HDR_H + rows * CELL_H + PAD * 2
 
     def place(self, x, y, collapsed=False, **_):
-        self.W = self._natural_w
-        self._full_h = self._natural_h
-        self._collapsed = collapsed
-        self.H = HDR_H if collapsed else self._full_h
-        self.win.geometry(f"{self.W}x{self.H}+{x}+{y}")
-        self.cv.config(width=self.W, height=self.H)
-        self.redraw()
+        super().place(x, y, w=self._natural_w, h=self._natural_h, collapsed=collapsed)
 
     def _refresh_size(self) -> None:
         old_h = self.H

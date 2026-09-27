@@ -27,7 +27,38 @@ python main.py
 
 In PyCharm, set the project interpreter to `.venv\Scripts\python.exe`. Normal development does not require building the EXE.
 
-## Building
+## Project layout
+
+```text
+desktop_widgets/
+  app.py, manager.py       # Startup and application coordination
+  config.py, theme.py      # Saved preferences and theme palettes
+  version.py, utils.py     # Version metadata and shared helpers
+  widgets/                # BaseWidget, app folders, files, notes, media, stats
+  ui/                     # Settings, focus view, menus, welcome and changelog
+  services/               # Updates, monitor work areas, release notes, safe I/O
+tests/                    # Unit and real-Tk regression checks
+main.py                   # Source / PyInstaller entry point
+build.py, release.bat      # Build and release tooling
+```
+
+`python main.py` and `python -m desktop_widgets` both launch the application.
+
+## Appearance and displays
+
+Settings → Appearance offers Graphite, Aurora, Rose Quartz, Ocean Mist and
+Porcelain, with adjustable card corners. Existing palettes remain available.
+Focus view uses a stable rounded card: previous/next buttons or arrow keys switch
+folders. The mouse wheel switches folders when all items fit; for larger folders
+it scrolls the contents. Shift + wheel always switches folders.
+
+Widgets can be dragged across displays, including displays left of or above the
+primary monitor. Snapping and reflow use each monitor's work area, excluding its
+taskbar. Saved negative positions survive restart; disconnected displays trigger
+widget recovery to an available monitor. Mixed-DPI layouts still need testing on
+physical hardware.
+
+## Building the executable
 
 Build the PyInstaller app:
 
@@ -45,20 +76,22 @@ The build disables UPX, bundles the app resources, writes Windows version metada
 
 ## Versioning
 
-The canonical application version is stored in `version.py` as `VERSION`.
+The installed application needs a version identity; it is stored in
+`desktop_widgets/version.py` as `VERSION`. The release command increments it
+automatically. You do not need to edit that file or add changelog entries.
 
 Default patch bump:
 
 ```bat
-python version.py bump
+python -m desktop_widgets.version bump
 ```
 
 Optional explicit bumps:
 
 ```bat
-python version.py bump patch
-python version.py bump minor
-python version.py bump major
+python -m desktop_widgets.version bump patch
+python -m desktop_widgets.version bump minor
+python -m desktop_widgets.version bump major
 ```
 
 Patch bumps are numeric SemVer bumps, for example `1.0.9 -> 1.0.10`.
@@ -94,23 +127,51 @@ Builds generate `DesktopWidget.sha256` in this format:
 
 Release ZIPs use the same format. The updater downloads the release ZIP to a staging directory, downloads the checksum asset, verifies the SHA-256 with `hashlib.sha256`, and installs only when the hashes match. Older releases without checksum assets are refused for automatic installation.
 
+Release checks run in the background after startup. Nothing downloads or installs
+until you accept the update prompt; declining keeps the current version running.
+Release builds bundle your versioned patch notes, and updates use the same notes
+from the GitHub release description for the post-update changelog. Ordinary
+development builds can fall back to Git commit subjects.
+
 ## Release Workflow
 
 Normal release flow:
 
 ```bat
+python build.py --prepare-release
+```
+
+This creates `release_notes/next.md` with an explicit heading, for example
+`# DesktopWidget 1.0.47` when the current version is `1.0.46`. Edit the notes below
+that heading. Preparing a draft does **not** change the app version, and running
+prepare again never overwrites existing notes.
+
+When ready, set `GITHUB_TOKEN` in your environment and run:
+
+```bat
 release.bat
 ```
 
-The existing release authentication behavior is preserved. Do not commit or print credentials. The build/release script uploads the release ZIP and checksum asset using the existing GitHub token environment used by the current workflow.
+The command checks that the heading matches the next version before building.
+Those exact notes go into the executable and GitHub release, and the draft moves
+to `release_notes/1.0.47.md` after publishing. The next prepare command then creates
+a draft for `1.0.48`. There is no need to edit the Python version constant or its
+legacy changelog dictionary.
+
+For a minor release, use `python build.py --prepare-release --minor` followed by
+`release.bat --minor`; similarly use `--major` for a major release. A mismatched
+draft version stops the release. Failed uploads leave an unpublished GitHub draft;
+rerunning the same release command retries that version without another bump.
+The release becomes public only after its ZIP and checksum are uploaded.
+Credentials must never be placed in the script.
 
 ## Validation
 
 Useful checks during development:
 
 ```bat
-python -m compileall .
-python -m unittest discover
+python -m compileall desktop_widgets main.py build.py
+python -m unittest discover -s tests -v
 python -m pip check
 python build.py
 ```

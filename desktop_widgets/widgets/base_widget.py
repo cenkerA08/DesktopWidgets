@@ -6,88 +6,19 @@ Subclasses only need to implement _draw() and optionally override HDR_H, MIN_W, 
 from __future__ import annotations
 import tkinter as tk
 from typing import TYPE_CHECKING
-from theme import CHROMA, SNAP, MARGIN, RSZ, HDR_H
-from utils import snap_to_grid, clamp_to_screen, magnetic_snap, push_desktop
-import config as _config_mod   # avoid name clash with local vars
+from desktop_widgets.theme import CHROMA, SNAP, MARGIN, RSZ, HDR_H
+from desktop_widgets.utils import snap_to_grid, clamp_to_screen, magnetic_snap, push_desktop
+import desktop_widgets.config as _config_mod   # avoid name clash with local vars
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 # keep the name 'config' available inside the class methods that use it
-import config
+import desktop_widgets.config as config
+from desktop_widgets.services.screens import area_for, clamp
 
 
-def _rounded_rect(canvas: tk.Canvas,
-                  x1: int, y1: int, x2: int, y2: int,
-                  r: int,
-                  fill: str = "", outline: str = "", width: int = 1,
-                  corners: str = "all") -> None:
-    """
-    Draw a crisp rounded rectangle using arcs + lines.
-    This is correct tkinter technique — create_polygon(smooth=True) overshoots
-    and looks terrible. Arcs give pixel-perfect corners.
-    corners: "all" | "top" | "bottom" | "none"
-    """
-    if r <= 0 or corners == "none":
-        canvas.create_rectangle(x1, y1, x2, y2,
-                                 fill=fill, outline=outline, width=width)
-        return
-
-    r  = min(r, (x2 - x1) // 2, (y2 - y1) // 2)
-    tl = r if corners in ("all", "top")    else 0
-    tr = r if corners in ("all", "top")    else 0
-    bl = r if corners in ("all", "bottom") else 0
-    br = r if corners in ("all", "bottom") else 0
-
-    # Filled body — three rectangles that together cover the interior
-    if fill:
-        # Centre column full height
-        canvas.create_rectangle(x1+max(tl,bl), y1, x2-max(tr,br), y2,
-                                 fill=fill, outline="")
-        # Left strip (between corner arcs)
-        if tl or bl:
-            canvas.create_rectangle(x1, y1+tl, x1+max(tl,bl), y2-bl,
-                                     fill=fill, outline="")
-        # Right strip
-        if tr or br:
-            canvas.create_rectangle(x2-max(tr,br), y1+tr, x2, y2-br,
-                                     fill=fill, outline="")
-
-    # Corner arcs (fill only, outline drawn separately)
-    _arc_kw = dict(style="pieslice", outline="" if not fill else fill)
-    if tl: canvas.create_arc(x1,    y1,    x1+tl*2, y1+tl*2,
-                              start=90,  extent=90, fill=fill, **{k:v for k,v in _arc_kw.items() if k!='fill'}, outline="" if not fill else "")
-    if tr: canvas.create_arc(x2-tr*2, y1,    x2,      y1+tr*2,
-                              start=0,   extent=90, fill=fill, outline="")
-    if br: canvas.create_arc(x2-br*2, y2-br*2, x2,    y2,
-                              start=270, extent=90, fill=fill, outline="")
-    if bl: canvas.create_arc(x1,    y2-bl*2, x1+bl*2, y2,
-                              start=180, extent=90, fill=fill, outline="")
-
-    # Outline path (drawn on top so it's crisp)
-    if outline and width > 0:
-        ow = width
-        # Top edge
-        canvas.create_line(x1+tl, y1, x2-tr, y1, fill=outline, width=ow)
-        # Right edge
-        canvas.create_line(x2, y1+tr, x2, y2-br, fill=outline, width=ow)
-        # Bottom edge
-        canvas.create_line(x2-br, y2, x1+bl, y2, fill=outline, width=ow)
-        # Left edge
-        canvas.create_line(x1, y2-bl, x1, y1+tl, fill=outline, width=ow)
-        # Corner arcs (outline only)
-        if tl: canvas.create_arc(x1,      y1,      x1+tl*2, y1+tl*2,
-                                  start=90, extent=90, style="arc",
-                                  outline=outline, width=ow)
-        if tr: canvas.create_arc(x2-tr*2, y1,      x2,      y1+tr*2,
-                                  start=0,  extent=90, style="arc",
-                                  outline=outline, width=ow)
-        if br: canvas.create_arc(x2-br*2, y2-br*2, x2,      y2,
-                                  start=270,extent=90, style="arc",
-                                  outline=outline, width=ow)
-        if bl: canvas.create_arc(x1,      y2-bl*2, x1+bl*2, y2,
-                                  start=180,extent=90, style="arc",
-                                  outline=outline, width=ow)
+from desktop_widgets.ui.drawing import rounded_rect as _rounded_rect
 
 
 class BaseWidget:
@@ -163,6 +94,8 @@ class BaseWidget:
         self._full_h = h or self._full_h
         self._collapsed = collapsed
         self.H = HDR_H if collapsed else self._full_h
+        x, y = clamp(x, y, self.W, self.H,
+                     area_for(self.win, x, y, self.W, self.H))
         self.win.geometry(f"{self.W}x{self.H}+{x}+{y}")
         self.cv.config(width=self.W, height=self.H)
         self.redraw()
@@ -181,15 +114,17 @@ class BaseWidget:
         if r > 0:
             _rounded_rect(self.cv, 0, 0, self.W, HDR_H,
                           r, fill=t.hdr, outline="",
-                          corners="top")
+                          corners="all" if self._collapsed else "top")
             # Fill the bottom of the header square (no bottom rounding)
-            self.cv.create_rectangle(0, r, self.W, HDR_H,
-                                     fill=t.hdr, outline="")
+            if not self._collapsed:
+                self.cv.create_rectangle(1, r, self.W-1, HDR_H,
+                                         fill=t.hdr, outline="")
         else:
             self.cv.create_rectangle(0, 0, self.W, HDR_H,
                                      fill=t.hdr, outline="")
 
-        self.cv.create_line(0, HDR_H, self.W, HDR_H, fill=t.accent, width=2)
+        if not self._collapsed:
+            self.cv.create_line(16, HDR_H, self.W-16, HDR_H, fill=t.border, width=1)
 
         # Collapse button
         arrow = "▶" if self._collapsed else "▼"
@@ -202,8 +137,8 @@ class BaseWidget:
         # Resize grip dots — only shown when resize is enabled
         if not self._collapsed and self.mgr.data.get("resize_enabled", True):
             gc = t.border
-            for off in (5, 9, 13):
-                self.cv.create_line(self.W-off, self.H-1, self.W-1, self.H-off,
+            for off in (4, 8):
+                self.cv.create_line(self.W-14-off, self.H-12, self.W-14, self.H-12-off,
                                     fill=gc, width=1)
         self._draw()
 
@@ -220,7 +155,7 @@ class BaseWidget:
 
     def _theme(self):
         """Override to support per-widget theme overrides."""
-        import config
+        import desktop_widgets.config as config
         return config.get_theme(self.mgr.data)
 
     def _get_rect(self) -> tuple[int, int, int, int]:
@@ -263,11 +198,10 @@ class BaseWidget:
             self.H = HDR_H
         else:
             self.H = self._full_h
-            sh = self.win.winfo_screenheight()
-            ny = self._win_y()
-            if ny + self.H + MARGIN > sh:
-                ny = max(MARGIN, sh - self.H - MARGIN)
-                self.win.geometry(f"+{self._win_x()}+{ny}")
+            nx, ny = self._win_x(), self._win_y()
+            nx, ny = clamp(nx, ny, self.W, self.H,
+                           area_for(self.win, nx, ny, self.W, HDR_H))
+            self.win.geometry(f"+{nx}+{ny}")
         self.win.geometry(f"{self.W}x{self.H}")
         self.cv.config(height=self.H)
         self.redraw()
@@ -364,6 +298,8 @@ class BaseWidget:
 
         if "s" in edge:
             nh = max(self.MIN_H, min(self.MAX_H, my - y0))
+        elif "n" in edge:
+            nh = max(self.MIN_H, min(self.MAX_H, y0 + h0 - my))
         else:
             nh = self.H
 
@@ -377,6 +313,8 @@ class BaseWidget:
 
         if "w" in edge:
             self.win.geometry(f"+{x0 + w0 - nw}+{self._win_y()}")
+        if "n" in edge:
+            self.win.geometry(f"+{self._win_x()}+{y0 + h0 - nh}")
 
         self._on_resize_extra(nw, nh)
         self.redraw()
@@ -393,17 +331,19 @@ class BaseWidget:
 
         elif self._mode == "drag" and self._moved:
             nx, ny = self._win_x(), self._win_y()
-            sw = self.win.winfo_screenwidth()
-            sh = self.win.winfo_screenheight()
-            nx, ny = clamp_to_screen(nx, ny, self.W, self.H, sw, sh)
+            area = area_for(self.win, nx, ny, self.W, self.H)
+            left, top, right, bottom = area
+            sw, sh = right - left, bottom - top
             # Magnetic snap to other widgets and screen centre
-            others = self.mgr.all_rects(exclude=self)
-            nx, ny = magnetic_snap(nx, ny, self.W, self.H, others, sw=sw, sh=sh)
+            others = self._monitor_rects(area)
+            nx, ny = magnetic_snap(nx-left, ny-top, self.W, self.H,
+                                   [(x-left, y-top, w, h) for x,y,w,h in others], sw=sw, sh=sh)
+            nx, ny = clamp(nx+left, ny+top, self.W, self.H, area)
             # Apply dropped position
             self.win.geometry(f"+{nx}+{ny}")
 
             # Push all overlapping widgets away — 4 directions, cascading
-            from utils import reflow_push_down
+            from desktop_widgets.utils import reflow_push_down
             all_widgets = (
                 list(self.mgr.wins.values()) +
                 [w for w in [self.mgr.statsplus_win,
@@ -411,9 +351,10 @@ class BaseWidget:
                               self.mgr.media_win] if w] +
                 list(self.mgr.docs_wins.values())
             )
-            other_widgets = [w for w in all_widgets if w is not self]
+            other_widgets = [w for w in all_widgets if w is not self
+                             and area_for(self.win, *w.rect()) == area]
             new_positions  = reflow_push_down(nx, ny, self.W, self.H,
-                                              other_widgets, sw, sh)
+                                              other_widgets, sw, sh, origin=(left, top))
             for widget, (wx, wy) in new_positions.items():
                 ox, oy, _, _ = widget.rect()
                 if wx != ox or wy != oy:
@@ -424,6 +365,9 @@ class BaseWidget:
 
         elif self._mode == "resize" and self._moved:
             nx, ny = self._win_x(), self._win_y()
+            nx, ny = clamp(nx, ny, self.W, self.H,
+                           area_for(self.win, nx, ny, self.W, self.H))
+            self.win.geometry(f"+{nx}+{ny}")
             if "w" in self._rsz_edge:
                 # window moved — update stored position
                 pass
@@ -438,11 +382,17 @@ class BaseWidget:
 
     # ── Snap preview ───────────────────────────────────────
 
+    def _monitor_rects(self, area):
+        return [r for r in self.mgr.all_rects(exclude=self)
+                if area_for(self.win, *r) == area]
+
     def _show_prev(self, nx: int, ny: int) -> None:
-        others = self.mgr.all_rects(exclude=self)
-        sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
-        sx, sy = magnetic_snap(nx, ny, self.W, self.H, others, sw=sw, sh=sh)
-        sx, sy = clamp_to_screen(sx, sy, self.W, self.H, sw, sh)
+        area = area_for(self.win, nx, ny, self.W, self.H)
+        left, top, right, bottom = area
+        sw, sh = right-left, bottom-top
+        others = [(x-left, y-top, w, h) for x,y,w,h in self._monitor_rects(area)]
+        sx, sy = magnetic_snap(nx-left, ny-top, self.W, self.H, others, sw=sw, sh=sh)
+        sx, sy = clamp(sx+left, sy+top, self.W, self.H, area)
 
         # Ghost preview window
         if self._prev:
@@ -456,10 +406,10 @@ class BaseWidget:
             p.geometry(f"{self.W}x{self.H}+{sx}+{sy}")
             self._prev = p
 
-        self._update_guides(sx, sy, others, sw, sh)
+        self._update_guides(sx-left, sy-top, others, sw, sh, left, top)
 
     def _update_guides(self, sx: int, sy: int,
-                       others: list, sw: int, sh: int) -> None:
+                       others: list, sw: int, sh: int, left=0, top=0) -> None:
         """Draw dashed alignment guide lines when snapped to another widget's edge."""
         t = self._theme()
         THRESH = 6
@@ -497,13 +447,13 @@ class BaseWidget:
             return
 
         if not hasattr(self, "_guide_win") or self._guide_win is None:
-            from theme import CHROMA
+            from desktop_widgets.theme import CHROMA
             g = tk.Toplevel(self.mgr.root)
             g.overrideredirect(True)
             g.attributes("-transparentcolor", CHROMA)
             g.attributes("-alpha", 0.85)
             g.configure(bg=CHROMA)
-            g.geometry(f"{sw}x{sh}+0+0")
+            g.geometry(f"{sw}x{sh}+{left}+{top}")
             g.attributes("-topmost", True)
             gcv = tk.Canvas(g, bg=CHROMA, highlightthickness=0,
                             width=sw, height=sh)
@@ -512,7 +462,8 @@ class BaseWidget:
             self._guide_cv  = gcv
         else:
             try:
-                self._guide_win.geometry(f"{sw}x{sh}+0+0")
+                self._guide_win.geometry(f"{sw}x{sh}+{left}+{top}")
+                self._guide_cv.config(width=sw, height=sh)
             except Exception:
                 self._guide_win = None
                 return
@@ -546,5 +497,5 @@ class BaseWidget:
 
 
 def find_non_overlapping_release(x, y, w, h, others, sw, sh):
-    from utils import find_non_overlapping
+    from desktop_widgets.utils import find_non_overlapping
     return find_non_overlapping(x, y, w, h, others, sw, sh)

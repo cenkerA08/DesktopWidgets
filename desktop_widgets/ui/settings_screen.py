@@ -9,32 +9,20 @@ Tabs: Appearance | Widgets | System
 from __future__ import annotations
 import tkinter as tk
 from typing import TYPE_CHECKING
-from theme import Theme, PRESETS, HDR_H
-import config
-from version import VERSION
+from desktop_widgets.theme import Theme, PRESETS, HDR_H
+import desktop_widgets.config as config
+from desktop_widgets.version import VERSION
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 
 def _btn(parent, text, command, t, accent=False, danger=False, **kw):
     """Flash-free flat button."""
+    from desktop_widgets.ui.components import RoundedButton
     if danger:
-        bg = "#3a2020"; fg = "#ff6b6b"; abg = "#4a2828"
-    elif accent:
-        bg = t.accent; abg = t.accent
-        try:
-            c = t.accent.lstrip("#")
-            r, g, b = int(c[0:2],16), int(c[2:4],16), int(c[4:6],16)
-            fg = "#000000" if (r*299 + g*587 + b*114) / 1000 > 160 else "#ffffff"
-        except Exception:
-            fg = "white"
-    else:
-        bg = kw.pop("bg", t.btn); fg = kw.pop("fg", t.txt)
-        abg = t.btn_h
-    return tk.Button(parent, text=text, command=command,
-                     bg=bg, fg=fg, activebackground=abg, activeforeground=fg,
-                     relief="flat", bd=0, cursor="hand2", **kw)
+        kw['fg'] = t.danger
+    return RoundedButton(parent, text, command, t, accent=accent, **kw)
 
 
 def _outline_btn(parent, text, command, t, danger=False, **kw):
@@ -127,35 +115,8 @@ def _col_stepper(parent, t, get_val, set_val, min_val=1, max_val=12):
 
 
 def _preset_swatch_row(parent, t, current_name, on_select, bg=None):
-    _bg     = bg or t.bg
-    names   = list(PRESETS.keys())
-    PER_ROW = 5
-    SW_W    = 46
-    SW_H    = 30
-    COL_W   = 58
-    for row_start in range(0, len(names), PER_ROW):
-        row_frame = tk.Frame(parent, bg=_bg)
-        row_frame.pack(anchor="w", pady=(0, 4))
-        for name in names[row_start:row_start + PER_ROW]:
-            preset = PRESETS[name]
-            is_sel = name == current_name
-            col = tk.Frame(row_frame, bg=_bg, width=COL_W)
-            col.pack_propagate(False)
-            col.pack(side="left")
-            swatch = tk.Frame(col, bg=preset.bg, width=SW_W, height=SW_H,
-                              highlightbackground=t.accent if is_sel else t.border,
-                              highlightthickness=2 if is_sel else 1,
-                              cursor="hand2")
-            swatch.place(relx=0.5, rely=0.0, anchor="n", y=2)
-            dot = tk.Frame(swatch, bg=preset.accent, width=10, height=3)
-            dot.place(relx=0.5, rely=0.82, anchor="center")
-            short = name if len(name) <= 9 else name[:8] + "…"
-            tk.Label(col, text=short, font=("Segoe UI", 7),
-                     bg=_bg, fg=t.txt if is_sel else t.txt2,
-                     anchor="center").place(relx=0.5, rely=1.0, anchor="s", y=-1)
-            col.config(height=SW_H + 18)
-            swatch.bind("<Button-1>", lambda e, n=name: on_select(n))
-            dot.bind("<Button-1>",    lambda e, n=name: on_select(n))
+    from desktop_widgets.ui.components import theme_picker
+    theme_picker(parent, t, current_name, on_select, bg)
 
 
 class SettingsScreen:
@@ -172,23 +133,24 @@ class SettingsScreen:
         self._scroll_to_widget = scroll_to
         self._scroll_pos = 0.0
         t = config.get_theme(mgr.data)
-        sw = mgr.root.winfo_screenwidth()
-        sh = mgr.root.winfo_screenheight()
-        PW, PH = min(760, max(640, sw - 80)), min(600, max(520, sh - 80))
-        px, py = (sw - PW) // 2, (sh - PH) // 2
+        from desktop_widgets.services.screens import area_for
+        left, top, right, bottom = area_for(mgr.root, mgr.root.winfo_pointerx(), mgr.root.winfo_pointery())
+        sw, sh = right-left, bottom-top
+        PW, PH = min(900, sw - 48), min(720, sh - 48)
+        px, py = left+(sw - PW) // 2, top+(sh - PH) // 2
 
         self.bg = tk.Toplevel(mgr.root)
         self.bg.overrideredirect(True)
-        self.bg.attributes("-topmost", False)
+        self.bg.attributes("-topmost", True)
         self.bg.attributes("-alpha", 0.0)
         self.bg.configure(bg="#000000")
-        self.bg.geometry(f"{sw}x{sh}+0+0")
+        self.bg.geometry(f"{sw}x{sh}+{left}+{top}")
         self.bg.bind("<Button-1>", self._bg_click)
         self._fade(0.0)
 
         self.win = tk.Toplevel(mgr.root)
         self.win.overrideredirect(True)
-        self.win.attributes("-topmost", False)
+        self.win.attributes("-topmost", True)
         self.win.configure(bg=t.bg)
         self.win.geometry(f"{PW}x{PH}+{px}+{py}")
         self.win.minsize(640, 520)
@@ -218,58 +180,25 @@ class SettingsScreen:
             self.close()
 
     def _build(self, t):
-        import theme as _th
+        import desktop_widgets.theme as _th
         for w in self.win.winfo_children():
             w.destroy()
 
-        hdr = tk.Frame(self.win, bg=t.hdr, height=48)
-        hdr.pack(fill="x"); hdr.pack_propagate(False)
-        hdr_title = tk.Label(hdr, text="Settings", font=("Segoe UI", 13, "bold"),
-                             bg=t.hdr, fg=t.txt)
-        hdr_title.pack(side="left", padx=20, pady=12)
-        close_lbl = tk.Label(hdr, text="✕", font=("Segoe UI", 12),
-                             bg=t.hdr, fg=t.txt2, cursor="hand2", padx=14, pady=10)
-        close_lbl.pack(side="right")
-        close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
-        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
-        close_lbl.bind("<ButtonRelease-1>", lambda e: self.close())
-        tk.Frame(self.win, bg=t.accent, height=2).pack(fill="x")
-
+        from desktop_widgets.theme import CHROMA
+        from desktop_widgets.ui.components import paint_shell, RoundedButton
+        self.win.configure(bg=CHROMA)
+        self.win.attributes('-transparentcolor', CHROMA)
+        shell = tk.Canvas(self.win, bg=CHROMA, highlightthickness=0)
+        shell.pack(fill='both', expand=True)
+        paint_shell(shell, self.PW, self.PH, t, 'Make it yours', self.close, 'SETTINGS')
         body = tk.Frame(self.win, bg=t.bg)
-        body.pack(fill="both", expand=True)
-
-        sidebar = tk.Frame(body, bg=t.hdr, width=150)
-        sidebar.pack(side="left", fill="y")
+        body.place(x=24, y=110, width=self.PW-48, height=self.PH-134)
+        sidebar = tk.Frame(body, bg=t.bg, width=132)
+        sidebar.pack(side='left', fill='y')
         sidebar.pack_propagate(False)
-        tk.Frame(body, bg=t.border, width=1).pack(side="left", fill="y")
-
-        nav_items = [
-            ("Appearance", "appearance"),
-            ("Widgets",    "widgets"),
-            ("System",     "system"),
-        ]
-        for label, key in nav_items:
-            is_active = key == self._tab
-            bg_nav = t.bg if is_active else t.hdr
-            fg_nav = t.txt if is_active else t.txt2
-            row = tk.Frame(sidebar, bg=bg_nav, cursor="hand2")
-            row.pack(fill="x")
-            indicator = tk.Frame(row, bg=t.accent if is_active else bg_nav, width=3)
-            indicator.pack(side="left", fill="y")
-            lbl = tk.Label(row, text=label,
-                           font=("Segoe UI", 10, "bold" if is_active else "normal"),
-                           bg=bg_nav, fg=fg_nav, cursor="hand2", anchor="w",
-                           padx=14, pady=12)
-            lbl.pack(fill="x")
-            if not is_active:
-                def _enter(e, r=row, l=lbl):
-                    r.config(bg=t.btn); l.config(bg=t.btn, fg=t.txt)
-                def _leave(e, r=row, l=lbl):
-                    r.config(bg=t.hdr); l.config(bg=t.hdr, fg=t.txt2)
-                row.bind("<Enter>", _enter); lbl.bind("<Enter>", _enter)
-                row.bind("<Leave>", _leave); lbl.bind("<Leave>", _leave)
-            row.bind("<ButtonRelease-1>", lambda e, k=key: self._switch(k))
-            lbl.bind("<ButtonRelease-1>", lambda e, k=key: self._switch(k))
+        for label, key in [('Appearance', 'appearance'), ('Widgets', 'widgets'), ('System', 'system')]:
+            RoundedButton(sidebar, label, lambda k=key: self._switch(k), t,
+                          accent=key == self._tab, width=120, height=44).pack(anchor='w', pady=(0, 8))
 
         content = tk.Frame(body, bg=t.bg)
         content.pack(side="left", fill="both", expand=True)
@@ -281,7 +210,7 @@ class SettingsScreen:
         self._win_id = self._canvas.create_window((0, 0), window=self._scroll_inner, anchor="nw")
         self._scroll_inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>",       self._on_canvas_configure)
-        self.win.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.win.bind("<MouseWheel>", self._on_mousewheel)
         self._sb_canvas.bind("<ButtonPress-1>",  self._sb_press)
         self._sb_canvas.bind("<B1-Motion>",       self._sb_drag)
         self._sb_canvas.bind("<ButtonRelease-1>", self._sb_release)
@@ -324,12 +253,12 @@ class SettingsScreen:
         self._update_scrollbar()
 
     def _switch(self, key):
-        self.win.unbind_all("<MouseWheel>")
+        self.win.unbind("<MouseWheel>")
         self._tab = key; self._scroll_pos = 0.0
         self._build(config.get_theme(self.mgr.data))
 
     def _rebuild(self):
-        self.win.unbind_all("<MouseWheel>")
+        self.win.unbind("<MouseWheel>")
         try:    self._scroll_pos = self._canvas.yview()[0]
         except: self._scroll_pos = 0.0
         self._build(config.get_theme(self.mgr.data))
@@ -371,11 +300,24 @@ class SettingsScreen:
         p = self._scroll_inner
         PAD = 20
 
-        self._section(p, t, "Color Preset")
+        self._section(p, t, "Workspace themes")
         pf = tk.Frame(p, bg=t.bg)
         pf.pack(fill="x", padx=PAD, pady=(4, 12))
-        current = self.mgr.data.get("theme_preset", "Dark Blue")
+        current = self.mgr.data.get("theme_preset", "Graphite")
         _preset_swatch_row(pf, t, current, self._apply_preset)
+
+        self._section(p, t, "Card corners")
+        corner_row = tk.Frame(p, bg=t.bg)
+        corner_row.pack(fill="x", padx=PAD, pady=(6, 16))
+        def set_corners(value):
+            self.mgr.data["corner_radius"] = value
+            config.save(self.mgr.data)
+            self.mgr.apply_theme()
+            self._rebuild()
+        for label, value in (("Square", 0), ("Soft", 10), ("Rounded", 16), ("Extra round", 24)):
+            _btn(corner_row, label, lambda v=value: set_corners(v), t,
+                 accent=config.get_corner_radius(self.mgr.data) == value,
+                 padx=12, pady=7).pack(side="left", padx=(0, 6))
 
         self._section(p, t, "Icon Size")
         icon_frame = tk.Frame(p, bg=t.bg)
@@ -442,65 +384,16 @@ class SettingsScreen:
     # ── Widgets ────────────────────────────────────────────
 
     def _tab_widgets(self, t):
-        import theme as _th
+        import desktop_widgets.theme as _th
         p = self._scroll_inner
         PAD = 20
         sw = self.mgr.root.winfo_screenwidth()
         sh = self.mgr.root.winfo_screenheight()
         self._widget_anchors: dict = {}  # group_id → Frame, for scroll-to
 
-        self._section(p, t, "Add Widget")
-        add_grid = tk.Frame(p, bg=t.bg)
-        add_grid.pack(fill="x", padx=PAD, pady=(4, 12))
-
-        # Updated to match manager.py with 5 options
-        add_options = [
-            ("🗂", "App Folder", "Group your apps", lambda: (self.close(), self.mgr.new_group_dialog())),
-            ("📁", "Files", "Quick file access", lambda: (self.close(), self.mgr.new_docs_dialog())),
-            ("📊", "Stats+", "System metrics", lambda: (self.close(), self.mgr.toggle_statsplus())),
-            ("📝", "Notes", "Sticky notes", lambda: (self.close(), self.mgr.toggle_notes())),
-            ("🎵", "Media", "Now playing", lambda: (self.close(), self.mgr.toggle_media())),
-        ]
-
-        for i, (icon, label, desc, cmd) in enumerate(add_options):
-            col = i % 3
-            row = i // 3
-            card = tk.Frame(add_grid, bg=t.btn,
-                            highlightbackground=t.border, highlightthickness=1,
-                            cursor="hand2")
-            card.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
-            inner = tk.Frame(card, bg=t.btn)
-            inner.pack(padx=8, pady=8)
-            tk.Label(inner, text=icon, font=("Segoe UI", 18),
-                     bg=t.btn, fg=t.txt).pack()
-            tk.Label(inner, text=label, font=("Segoe UI", 9, "bold"),
-                     bg=t.btn, fg=t.txt).pack(pady=(3, 0))
-            tk.Label(inner, text=desc, font=("Segoe UI", 7),
-                     bg=t.btn, fg=t.txt2).pack()
-
-            def _enter(e, c=card, i=inner):
-                c.config(bg=t.hov, highlightbackground=t.accent)
-                def _set(w):
-                    try: w.config(bg=t.hov)
-                    except: pass
-                    for ch in w.winfo_children(): _set(ch)
-                _set(i)
-
-            def _leave(e, c=card, i=inner):
-                c.config(bg=t.btn, highlightbackground=t.border)
-                def _set(w):
-                    try: w.config(bg=t.btn)
-                    except: pass
-                    for ch in w.winfo_children(): _set(ch)
-                _set(i)
-
-            for w in [card, inner] + list(inner.winfo_children()):
-                w.bind("<Enter>", lambda e, en=_enter: en(e))
-                w.bind("<Leave>", lambda e, lv=_leave: lv(e))
-                w.bind("<ButtonRelease-1>", lambda e, c=cmd: c())
-
-        for col in range(3):
-            add_grid.columnconfigure(col, weight=1)
+        self._section(p, t, "Your desktop")
+        _btn(p, '+  Add a widget', lambda: (self.close(), self.mgr.show_add_picker()),
+             t, accent=True, padx=18, pady=10).pack(anchor='w', padx=PAD, pady=(8, 20))
 
         self._section(p, t, "Organizers")
         for g in self.mgr.data["groups"]:
@@ -616,7 +509,7 @@ class SettingsScreen:
         ctrl = tk.Frame(frame, bg=t.hov)
         ctrl.pack(side="right", padx=12, pady=6)
         blk = self.mgr.data.setdefault("statsplus", {})
-        from statsplus_widget import MIN_COLS, MAX_COLS, DEF_COLS
+        from desktop_widgets.widgets.statsplus_widget import MIN_COLS, MAX_COLS, DEF_COLS
         tk.Label(ctrl, text="cols", font=("Segoe UI", 8),
                  bg=t.hov, fg=t.txt2).pack(side="left", padx=(0,4))
         def get_sp_cols(): return blk.get("cols", DEF_COLS)
@@ -636,7 +529,7 @@ class SettingsScreen:
         blk2 = self.mgr.data.setdefault("statsplus", {})
         active = blk2.setdefault("metrics", ["cpu_pct", "cpu_temp", "ram_pct",
                                              "gpu_pct", "gpu_temp"])
-        from statsplus_widget import ALL_METRICS
+        from desktop_widgets.widgets.statsplus_widget import ALL_METRICS
         for key, label, *_ in ALL_METRICS:
             is_on = key in active
             def toggle(k=key):
@@ -699,7 +592,7 @@ class SettingsScreen:
     # ── System ─────────────────────────────────────────────
 
     def _tab_system(self, t):
-        from utils import task_exists, create_task, remove_task
+        from desktop_widgets.utils import task_exists, create_task, remove_task
         import sys, os
         p = self._scroll_inner
         PAD = 20
@@ -712,7 +605,7 @@ class SettingsScreen:
             if task_exists(): remove_task()
             else:
                 exe = sys.executable if getattr(sys,"frozen",False) \
-                      else f'"{sys.executable}" "{os.path.abspath(__file__)}"'
+                      else f'"{sys.executable}" "{os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "main.py"))}"'
                 create_task(exe)
             self._rebuild()
         _btn(p, "Disable" if has_task else "Enable auto-start", toggle, t,
@@ -722,7 +615,7 @@ class SettingsScreen:
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(
                  anchor="w", padx=PAD, pady=(4,0))
         self._section(p, t, "Updates")
-        tk.Label(p, text="Automatic updates require a matching SHA-256 checksum asset.",
+        tk.Label(p, text="Updates are checked at startup. You choose whether to download, install, and restart.",
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2,
                  wraplength=460, justify="left").pack(anchor="w", padx=PAD, pady=(4,0))
         self._section(p, t, "About")
@@ -753,7 +646,7 @@ class SettingsScreen:
 
     def _set_icon_size(self, val):
         self.mgr.data["icon_size"] = val
-        import theme as th, utils
+        import desktop_widgets.theme as th, desktop_widgets.utils as utils
         th.ICON_SZ = val; utils._CACHE.clear()
         config.save(self.mgr.data)
         for gw in self.mgr.wins.values():
@@ -762,7 +655,7 @@ class SettingsScreen:
 
     def _set_cell_size(self, val):
         self.mgr.data["cell_size"] = val
-        import theme as th
+        import desktop_widgets.theme as th
         cw, ch, pad = {"compact":(72,74,10),"normal":(88,90,14),"spacious":(104,108,18)}[val]
         th.CELL_W = cw; th.CELL_H = ch; th.PAD = pad
         config.save(self.mgr.data)
@@ -774,7 +667,7 @@ class SettingsScreen:
         self.mgr.data["ui_font"] = font_name
         self.mgr.data.setdefault("theme", {})["stat_font"] = font_name
         config.save(self.mgr.data)
-        import theme as th
+        import desktop_widgets.theme as th
         th.active.stat_font = font_name
         self.mgr.apply_theme()
         if self.mgr.notes_win and self.mgr.notes_win._text_widget:
@@ -782,7 +675,7 @@ class SettingsScreen:
         self._rebuild()
 
     def close(self):
-        try: self.win.unbind_all("<MouseWheel>")
+        try: self.win.unbind("<MouseWheel>")
         except: pass
         try: self.win.grab_release()
         except: pass

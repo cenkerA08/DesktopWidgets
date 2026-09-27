@@ -6,11 +6,11 @@ from __future__ import annotations
 import tkinter as tk
 import math
 from typing import TYPE_CHECKING
-from utils import push_desktop
-import config
+from desktop_widgets.utils import push_desktop
+import desktop_widgets.config as config
 
 if TYPE_CHECKING:
-    from manager import Manager
+    from desktop_widgets.manager import Manager
 
 
 # ── Icon drawing helpers ────────────────────────────────────
