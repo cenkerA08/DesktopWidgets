@@ -357,7 +357,11 @@ def github_release(version: str, zip_path: Path) -> None:
         existing = requests.get(f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
                                 headers=headers, timeout=(8, 30))
         if existing.status_code != 200 or not existing.json().get("draft"):
-            raise RuntimeError(f"Could not create release {tag}: HTTP {release_response.status_code}")
+            detail = release_response.text.strip()
+            message = f"Could not create release {tag}: HTTP {release_response.status_code}"
+            if detail:
+                message += f" — {detail}"
+            raise RuntimeError(message)
         release_response = existing
 
     upload_url = release_response.json()["upload_url"].split("{")[0]

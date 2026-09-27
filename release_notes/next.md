@@ -1,19 +1,15 @@
-# DesktopWidget 1.0.47
+# DesktopWidget 1.0.48
 
-## Appearance
+## Media player
 
-- Rounded widget cards and five new coordinated themes.
-- Consistent focus, settings, and Add Widget screens.
-- One theme picker for global and individual widget appearance.
-- Smoother antialiased corners and icons, with Windows DPI awareness.
-- Restore icon cards and a full-width Media entry in Add Widget.
-- Give Settings navigation buttons consistent dimensions.
-- Smoother focus navigation with previous/next controls and keyboard support.
+- Redesigned the player with a rounded album-art panel and clearer track information.
+- Added larger, smoother playback controls with hover feedback.
+- Show elapsed and total playback time.
+- Crop artwork without stretching and keep long titles and artist names within the card.
+- Improve the idle state and match the selected dark or light theme.
+- Preserve rounded widget corners and remove the resize grip from the fixed-size player.
 
 ## Improvements
 
-- Ask before downloading and installing updates.
-- Support widget placement on multiple monitors, including screens above or left of the main display.
-- Recover widgets when a monitor is disconnected.
-- Keep patch notes tied to an explicit release version.
-- Reorganize application code into widgets, UI, and services packages.
+- Reuse unchanged artwork and update the timeline without repainting the whole player.
+- Clear inactive controls when playback ends or the widget is collapsed.

@@ -135,7 +135,8 @@ class BaseWidget:
                             tags="collapse_btn")
 
         # Resize grip dots — only shown when resize is enabled
-        if not self._collapsed and self.mgr.data.get("resize_enabled", True):
+        if (not self._collapsed and self.mgr.data.get("resize_enabled", True)
+                and (self.MIN_W != self.MAX_W or self.MIN_H != self.MAX_H)):
             gc = t.border
             for off in (4, 8):
                 self.cv.create_line(self.W-14-off, self.H-12, self.W-14, self.H-12-off,

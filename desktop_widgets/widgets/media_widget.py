@@ -32,19 +32,12 @@ except Exception as e:
     _winsdk_err = str(e)
 
 # ── Layout constants ───────────────────────────────────────
-W_FIXED  = 320     # fixed widget width
-ART_SZ   = 90      # album art size
-PAD      = 14      # outer padding
-IPIX     = 8       # inner gap between art and text
-PROG_H   = 5       # progress bar height
-BTN_R    = 18      # control button radius
-BTN_GAP  = 54      # gap between button centres
-CTRL_PAD = 38      # extra breathing room above controls
-SCALE    = 2       # PIL render scale for antialiasing
+W_FIXED  = 360     # fixed widget width
+SCALE    = 3       # PIL render scale for antialiasing
 
 # Computed fixed height — must match _render_media layout exactly
-_BODY_H  = ART_SZ + 8 + PROG_H + CTRL_PAD + BTN_R*2 + PAD
-FIXED_H  = HDR_H + PAD + _BODY_H + PAD
+_BODY_H  = 280
+FIXED_H  = HDR_H + _BODY_H
 
 
 class _Track:
@@ -187,113 +180,103 @@ def _best_font(text: str, preferred_name: str, size: int):
     return _try_font(preferred_name, size)
 
 
+def _layout(w):
+    """Body coordinates shared by rendering, seeking and playback hit targets."""
+    return {"progress": (22, 164, w-22, 169), "controls_y": 232,
+            "controls": {"prev": (w//2-72, 22),
+                         "play_pause": (w//2, 28), "next": (w//2+72, 22)}}
+
+
+def _time_label(seconds):
+    seconds = max(0, int(seconds))
+    minutes, seconds = divmod(seconds, 60)
+    return f"{minutes}:{seconds:02d}"
+
+
 def _render_media(w: int, h: int, tr: "_Track", t,
-                  corner_r: int) -> "Image.Image":
-    """
-    Render the full media widget body (below header) with PIL at SCALE×size.
-    All coordinates are computed explicitly — no arithmetic drift.
-    """
-    S    = SCALE
-    W    = w * S
-    H    = h * S
-    P    = PAD * S        # outer padding
-    GAP  = IPIX * S       # gap between art and text column
+                  corner_r: int, hover=None, available=True) -> "Image.Image":
+    """A transparent, antialiased body that leaves the outer card intact."""
+    from PIL import ImageOps
+    from desktop_widgets.ui.drawing import widget_icon
+    S = SCALE
+    img = Image.new("RGBA", (w*S, h*S), t.bg)
+    d = ImageDraw.Draw(img)
+    def box(coords):
+        return tuple(int(v*S) for v in coords)
+    def text(x, y, value, size, color, bold=False, anchor="lt", max_width=None):
+        font = _best_font(value, "segoeuib.ttf" if bold else "segoeui.ttf", size*S)
+        if max_width is not None:
+            value = _truncate(value, font, int(max_width*S))
+        d.text((int(x*S), int(y*S)), value, fill=color, font=font, anchor=anchor)
 
-    img = Image.new("RGBA", (W, H), _hex_rgba(t.bg))
-    d   = ImageDraw.Draw(img)
-
-    acc  = _hex_rgba(t.accent)
-    txt  = _hex_rgba(t.txt)
-    txt2 = _hex_rgba(t.txt2)
-    hov  = _hex_rgba(t.hov)
-    bdr  = _hex_rgba(t.border)
-
-    # ── Album art ─────────────────────────────────────────
-    art_x = P
-    art_y = P
-    art_w = ART_SZ * S
-    art_h = ART_SZ * S
-
-    if tr.art_img and PIL_OK:
-        art = tr.art_img.resize((art_w, art_h), Image.LANCZOS).convert("RGBA")
-        mask = Image.new("L", (art_w, art_h), 0)
-        ImageDraw.Draw(mask).rounded_rectangle(
-            [0, 0, art_w-1, art_h-1], radius=8*S, fill=255)
-        img.paste(art, (art_x, art_y), mask)
+    active = bool(tr.title) and available
+    # Quiet inset surface gives the artwork and metadata a single visual group.
+    d.rounded_rectangle(box((18, 16, w-18, 146)), radius=18*S, fill=t.btn)
+    art_size = 104
+    if tr.art_img is not None and active:
+        art = ImageOps.fit(tr.art_img.convert("RGBA"), (art_size*S, art_size*S),
+                           method=Image.Resampling.LANCZOS)
     else:
-        d.rounded_rectangle([art_x, art_y, art_x+art_w-1, art_y+art_h-1],
-                             radius=8*S, fill=hov, outline=bdr, width=S)
-        nf = _try_font("segoeui.ttf", 28*S)
-        d.text((art_x+art_w//2, art_y+art_h//2), "♪",
-               fill=txt2, font=nf, anchor="mm")
+        art = Image.new("RGBA", (art_size*S, art_size*S), t.hov)
+        icon = widget_icon('media', t.accent, size=42*S)
+        art.alpha_composite(icon, ((art_size*S-icon.width)//2, (art_size*S-icon.height)//2))
+    mask = Image.new("L", art.size)
+    ImageDraw.Draw(mask).rounded_rectangle((0,0,art.width-1,art.height-1), radius=13*S, fill=255)
+    img.paste(art, (30*S, 29*S), mask)
 
-    # ── Text column ───────────────────────────────────────
-    tx  = art_x + art_w + GAP
-    t_w = W - tx - P
-    ty  = art_y
+    tx, tw = 150, w-180
+    text(tx, 30, (tr.source or 'NOW PLAYING') if active else 'YOUR SOUNDTRACK',
+         9, t.accent, bold=True, max_width=tw)
+    title = tr.title if active else ('Ready when you are' if available else 'Media unavailable')
+    title_font = _best_font(title, 'segoeuib.ttf', 16*S)
+    lines = _wrap(title, title_font, tw*S)
+    for i, line in enumerate(lines[:2]):
+        if i == 1 and len(lines) > 2:
+            line += '…'
+        text(tx, 51+i*21, line, 16, t.txt, bold=True, max_width=tw)
+    artist = tr.artist or tr.album or 'Unknown artist'
+    if not active:
+        artist = 'Play something in your music app.' if available else 'Media integration could not start.'
+    if active:
+        artist_y = 51 + 21*min(2, len(lines)) + 10
+        text(tx, artist_y, artist, 11, t.txt2, max_width=tw)
+        if tr.album and tr.album != tr.title and tr.album != artist:
+            text(tx, artist_y+19, tr.album, 9, t.txt2, max_width=tw)
+    else:
+        font = _best_font(artist, 'segoeui.ttf', 10*S)
+        for i, line in enumerate(_wrap(artist, font, tw*S)[:2]):
+            text(tx, 101+i*15, line, 10, t.txt2, max_width=tw)
 
-    if tr.source:
-        sf = _try_font("segoeui.ttf", 7*S)
-        d.text((tx, ty), tr.source, fill=_hex_rgba(t.accent), font=sf, anchor="lt")
-        ty += 11*S
-
-    # Title — auto-switch to CJK font when needed
-    title_f = _best_font(tr.title, "segoeuib.ttf", 15*S)
-    for line in _wrap(tr.title, title_f, t_w)[:2]:
-        d.text((tx, ty), line, fill=txt, font=title_f, anchor="lt")
-        ty += 18*S
-
-    ty += 3*S
-
-    # Artist — auto-switch to CJK font when needed
-    artist_f = _best_font(tr.artist, "segoeui.ttf", 13*S)
-    d.text((tx, ty), tr.artist, fill=txt2, font=artist_f, anchor="lt")
-    ty += 17*S
-
-    # Album — auto-switch to CJK font when needed
-    if tr.album and tr.album != tr.title:
-        alb_f = _best_font(tr.album, "segoeui.ttf", 11*S)
-        d.text((tx, ty), _truncate(tr.album, alb_f, t_w),
-               fill=_hex_rgba(t.txt2, 160), font=alb_f, anchor="lt")
-
-    # ── Progress bar — sits BELOW the art block ────────────
-    prog_y = art_y + art_h + (8 * S)
-    prog_h = PROG_H * S
-    prog_w = W - P*2
-    r_prog = prog_h // 2
-    d.rounded_rectangle([P, prog_y, P+prog_w, prog_y+prog_h],
-                         radius=r_prog, fill=hov)
-    fill_w = max(r_prog*2, int(prog_w * max(0.0, min(1.0, tr.position))))
-    d.rounded_rectangle([P, prog_y, P+fill_w, prog_y+prog_h],
-                         radius=r_prog, fill=acc)
-
-    # ── Controls ──────────────────────────────────────────
-    ctrl_y = prog_y + prog_h + CTRL_PAD * S
-    cx_mid = W // 2
-    btn_r  = BTN_R * S
-
-    # Determine if accent is light — if so use dark symbol on accent bg
+    layout = _layout(w)
+    cy = layout['controls_y']
     ar, ag, ab = _hex(t.accent)
-    _accent_luminance = (ar * 299 + ag * 587 + ab * 114) / 1000
-    _sym_on_accent = (0, 0, 0, 255) if _accent_luminance > 160 else (255, 255, 255, 255)
-
-    def draw_btn(cx, cy, symbol, accent=False, big=False):
-        r = int(btn_r * (1.2 if big else 1.0))
-        d.ellipse([cx-r, cy-r, cx+r, cy+r],
-                  fill=acc if accent else hov,
-                  outline=acc if accent else bdr, width=S)
-        fs  = int(13*S if big else 11*S)
-        bf  = _try_font("seguisym.ttf", fs)
-        col = _sym_on_accent if accent else txt2
-        d.text((cx, cy), symbol, fill=col, font=bf, anchor="mm")
-
-    gap = BTN_GAP * S
-    draw_btn(cx_mid - gap, ctrl_y, "⏮")
-    draw_btn(cx_mid,       ctrl_y, "⏸" if tr.playing else "▶", accent=True, big=True)
-    draw_btn(cx_mid + gap, ctrl_y, "⏭")
-
-    return img.resize((w, h), Image.LANCZOS)
-
+    on_accent = '#10141d' if (ar*299+ag*587+ab*114)/1000 > 160 else '#ffffff'
+    for command, (cx, radius) in layout['controls'].items():
+        primary = command == 'play_pause'
+        fill = t.accent if primary and active else t.hov if hover == command and active else t.btn
+        d.ellipse(box((cx-radius, cy-radius, cx+radius, cy+radius)), fill=fill)
+        color = on_accent if primary and active else t.txt if active else t.txt2
+        if command == 'play_pause':
+            if tr.playing and active:
+                for offset in (-7, 3):
+                    d.rounded_rectangle(box((cx+offset, cy-9, cx+offset+4, cy+9)), radius=S, fill=color)
+            else:
+                d.polygon([(int(x*S),int(y*S)) for x,y in ((cx-5,cy-10),(cx-5,cy+10),(cx+10,cy))], fill=color)
+        else:
+            sign = -1 if command == 'prev' else 1
+            d.polygon([(int(x*S),int(y*S)) for x,y in
+                       ((cx-5*sign,cy-7),(cx-5*sign,cy+7),(cx+5*sign,cy))], fill=color)
+            d.rounded_rectangle(box((cx+(7 if sign>0 else -9),cy-7,
+                                     cx+(9 if sign>0 else -7),cy+7)), radius=S, fill=color)
+    # Composite internal antialiasing onto the theme background, then cut only
+    # the outer bottom corners. This avoids color-key fringes in light themes.
+    mask = Image.new('L', img.size)
+    md = ImageDraw.Draw(mask)
+    radius = max(0, corner_r-1)*S
+    md.rounded_rectangle((S,0,(w-1)*S-1,(h-1)*S-1), radius=radius, fill=255)
+    md.rectangle((S,0,(w-1)*S-1,max(0,h*S-radius-2*S)), fill=255)
+    img.putalpha(mask)
+    return img.resize((w,h), Image.Resampling.LANCZOS)
 
 def _wrap(text: str, font, max_px: int) -> list[str]:
     """Simple word-wrap for PIL text."""
@@ -344,6 +327,10 @@ class MediaWidget(BaseWidget):
         self._pending_cmd: str | None = None
         self._body_photo    = None   # keep ImageTk alive
         self._poll_time: float = 0.0  # time.time() when last poll completed
+        self._hover_control = None
+        self._tick_id = None
+        self._dirty = False
+        self._last_art_bytes = None
 
         super().__init__(mgr)
 
@@ -376,12 +363,14 @@ class MediaWidget(BaseWidget):
                     # Only trigger a full redraw if something meaningful changed
                     changed = (track.title != old.title or
                                track.artist != old.artist or
+                               track.album != old.album or
+                               track.source != old.source or
+                               track.duration != old.duration or
                                track.playing != old.playing or
                                track.art_img is not old.art_img)
                     self._track = track
                     self._poll_time = time.time()
-                if changed:
-                    self.win.after(0, self.redraw)
+                    self._dirty = self._dirty or changed
             except Exception:
                 pass
             time.sleep(1.0)
@@ -430,7 +419,11 @@ class MediaWidget(BaseWidget):
                         await reader.load_async(sz)
                         buf = bytearray(sz)
                         reader.read_bytes(buf)
-                        tr.art_img = Image.open(io.BytesIO(bytes(buf))).convert("RGBA")
+                        payload = bytes(buf)
+                        if payload != self._last_art_bytes:
+                            self._art_img_raw = Image.open(io.BytesIO(payload)).convert("RGBA")
+                            self._last_art_bytes = payload
+                        tr.art_img = self._art_img_raw
                 except Exception:
                     pass
         except Exception:
@@ -441,38 +434,48 @@ class MediaWidget(BaseWidget):
         """Called every 500ms — interpolates progress bar between WinRT polls."""
         if not self._running:
             return
+        with self._lock:
+            dirty = self._dirty
+            self._dirty = False
+        if dirty:
+            self.redraw()
         if not self._collapsed:
             with self._lock:
                 tr = self._track
                 pt = self._poll_time
             # Only interpolate if playing and we have duration
-            if tr.playing and tr.duration > 0 and pt > 0:
-                elapsed = time.time() - pt
+            if tr.duration > 0 and pt > 0:
+                elapsed = max(0, time.time() - pt) if tr.playing else 0
                 live_pos = max(0.0, min(1.0,
                     (tr.pos_secs + elapsed) / tr.duration))
                 self._draw_progress_only(live_pos)
-        self.win.after(500, self._tick)
+        self._tick_id = self.win.after(500, self._tick)
 
     def _draw_progress_only(self, position: float) -> None:
-        """Redraw just the progress bar without re-rendering the full PIL image."""
-        if not self._body_photo:
+        """Update only the timeline; artwork is retained between polls."""
+        from desktop_widgets.ui.drawing import rounded_rect
+        if not self._body_photo or self._collapsed:
             return
-        t  = self._theme()
-        x1, y1, x2, y2 = self._prog_hitbox
-        if x2 <= x1:
-            return
-        bar_w = x2 - x1
-        # Delete previous tick-drawn bar items only (tagged "prog_tick")
-        self.cv.delete("prog_tick")
-        # Track
-        self.cv.create_rectangle(x1, y1, x2, y2,
-                                  fill=t.hov, outline="", tags="prog_tick")
-        # Fill
-        fill_w = max(0, int(bar_w * position))
-        if fill_w > 0:
-            self.cv.create_rectangle(x1, y1, x1 + fill_w, y2,
-                                     fill=t.accent, outline="", tags="prog_tick")
-
+        t = self._theme()
+        x1, y1, x2, y2 = _layout(self.W)['progress']
+        y1 += HDR_H
+        y2 += HDR_H
+        self.cv.delete('prog_tick')
+        before = set(self.cv.find_all())
+        rounded_rect(self.cv, x1, y1, x2, y2, 3, fill=t.btn_h)
+        with self._lock:
+            tr = self._track
+        known = bool(tr.title) and tr.duration > 0
+        fraction = max(0, min(1, position)) if known else 0
+        fill_w = int((x2-x1)*fraction)
+        if fill_w:
+            rounded_rect(self.cv, x1, y1, x1+fill_w, y2, min(3,fill_w/2), fill=t.accent)
+        self.cv.create_text(x1, y2+15, text=_time_label(fraction*tr.duration) if known else '—:—',
+                            fill=t.txt2, font=('Segoe UI', 9), anchor='w')
+        self.cv.create_text(x2, y2+15, text=_time_label(tr.duration) if known else '—:—',
+                            fill=t.txt2, font=('Segoe UI', 9), anchor='e')
+        for item in set(self.cv.find_all())-before:
+            self.cv.addtag_withtag('prog_tick', item)
     def _send_command(self, cmd: str) -> None:
         if not WINSDK_OK: return
         async def _run():
@@ -512,80 +515,42 @@ class MediaWidget(BaseWidget):
 
     def _draw(self) -> None:
         t = self._theme()
-        self.cv.create_text(self.W // 2, HDR_H // 2,
-            text="Media", font=("Segoe UI", 9, "bold"),
-            fill=t.txt2, anchor="center")
-
-        if self._collapsed:
-            return
-
-        if not WINSDK_OK:
-            self.cv.create_text(self.W//2, HDR_H + (self.H-HDR_H)//2,
-                text=f"pip install winsdk\n({_winsdk_err[:60]})" if _winsdk_err
-                     else "pip install winsdk",
-                font=("Segoe UI", 9), fill=t.txt2,
-                anchor="center", justify="center", width=self.W-28)
-            return
-
-        if not PIL_OK:
-            self.cv.create_text(self.W//2, HDR_H+(self.H-HDR_H)//2,
-                text="pip install pillow",
-                font=("Segoe UI", 9), fill=t.txt2, anchor="center")
-            return
-
+        self._ctrl_hitboxes = {}
+        self._prog_hitbox = (0,0,0,0)
+        self.cv.create_text(HDR_H+4, HDR_H//2, text='Now playing',
+                            font=('Segoe UI', 10, 'bold'), fill=t.txt, anchor='w')
         with self._lock:
             tr = self._track
-
-        if not tr.title:
-            self.cv.create_text(self.W//2, HDR_H+(self.H-HDR_H)//2,
-                text="Nothing playing",
-                font=("Segoe UI", 10), fill=t.txt2, anchor="center")
+        if self._collapsed:
+            self._pending_cmd = None
             return
-
-        body_h = self.H - HDR_H
-        if body_h < 20:
-            # Stale saved height — force correct size and redraw next tick
-            self._full_h = FIXED_H
-            self.H = FIXED_H
-            self.win.geometry(f"{self.W}x{FIXED_H}")
-            self.cv.config(height=FIXED_H)
-            self.win.after(50, self.redraw)
+        self.cv.create_text(self.W-20, HDR_H//2,
+                            text='PLAYING' if tr.playing and tr.title else 'PAUSED' if tr.title else 'READY',
+                            font=('Segoe UI', 8), fill=t.accent if tr.playing else t.txt2, anchor='e')
+        if not PIL_OK:
+            self.cv.create_text(self.W//2, self.H//2, text='Media display unavailable', fill=t.txt2)
             return
-        try:
-            body_img = _render_media(self.W, body_h, tr, t,
-                                     config.get_corner_radius(self.mgr.data))
-            self._body_photo = None          # release old ref before creating new
-            self._body_photo = ImageTk.PhotoImage(body_img)
-            del body_img                     # free the PIL image immediately
-            self.cv.create_image(0, HDR_H, image=self._body_photo, anchor="nw")
-        except Exception as e:
-            self.cv.create_text(self.W//2, HDR_H+20,
-                text=str(e)[:60], font=("Segoe UI", 8), fill=t.danger,
-                anchor="n", width=self.W-20)
-            return
-
-        # Store progress bar hitbox — must match _render_media prog_y exactly
-        prog_y = HDR_H + PAD + ART_SZ + 8
-        self._prog_hitbox = (PAD, prog_y, self.W - PAD, prog_y + PROG_H)
-
-        # ctrl_y must match _render_media exactly:
-        # PIL: ctrl_y_pil = (PAD + ART_SZ*S + 8*S + PROG_H*S + CTRL_PAD*S)
-        # Screen: HDR_H + ctrl_y_pil / SCALE  (ctrl_y IS the button centre)
-        S      = SCALE
-        ctrl_y = HDR_H + (PAD*S + ART_SZ*S + 8*S + PROG_H*S + CTRL_PAD*S) // S
-        cx_mid = self.W // 2
-        gap    = BTN_GAP
-        br     = BTN_R
-        self._ctrl_hitboxes = {
-            "prev":       (cx_mid-gap-br, ctrl_y-br, cx_mid-gap+br, ctrl_y+br),
-            "play_pause": (cx_mid-int(br*1.2), ctrl_y-int(br*1.2),
-                           cx_mid+int(br*1.2), ctrl_y+int(br*1.2)),
-            "next":       (cx_mid+gap-br, ctrl_y-br, cx_mid+gap+br, ctrl_y+br),
-        }
+        body_img = _render_media(self.W, self.H-HDR_H, tr, t,
+                                 config.get_corner_radius(self.mgr.data), self._hover_control, WINSDK_OK)
+        self._body_photo = ImageTk.PhotoImage(body_img, master=self.cv)
+        self.cv.create_image(0, HDR_H, image=self._body_photo, anchor='nw')
+        layout = _layout(self.W)
+        if tr.title and WINSDK_OK:
+            if tr.duration > 0:
+                x1,y1,x2,y2 = layout['progress']
+                self._prog_hitbox = (x1,y1+HDR_H,x2,y2+HDR_H)
+            cy = HDR_H+layout['controls_y']
+            self._ctrl_hitboxes = {cmd: (cx-radius,cy-radius,cx+radius,cy+radius)
+                                  for cmd,(cx,radius) in layout['controls'].items()}
+        else:
+            self._pending_cmd = None
+        self._draw_progress_only(tr.position)
 
     # ── Input ──────────────────────────────────────────────
-
     def _on_press_extra(self, e) -> None:
+        self._pending_cmd = None
+        if self._collapsed:
+            return
         if self._mode not in ("", "drag"):
             return
 
@@ -618,6 +583,14 @@ class MediaWidget(BaseWidget):
             self._send_command(cmd)
 
     def _on_cursor(self, e: tk.Event) -> None:
+        hovered = next((cmd for cmd,(x1,y1,x2,y2) in self._ctrl_hitboxes.items()
+                        if x1 <= e.x <= x2 and y1 <= e.y <= y2), None)
+        if hovered != self._hover_control:
+            self._hover_control = hovered
+            # Don't cancel a pending click when the pointer moves over a button.
+            pending = self._pending_cmd
+            self.redraw()
+            self._pending_cmd = pending
         if e.y <= HDR_H:
             self.cv.config(cursor="hand2" if e.x <= HDR_H else "fleur")
             return
@@ -665,4 +638,7 @@ class MediaWidget(BaseWidget):
 
     def destroy(self) -> None:
         self._running = False
+        if self._tick_id is not None:
+            self.win.after_cancel(self._tick_id)
+            self._tick_id = None
         super().destroy()
