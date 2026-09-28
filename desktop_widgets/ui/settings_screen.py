@@ -136,7 +136,8 @@ class SettingsScreen:
         from desktop_widgets.services.screens import area_for
         left, top, right, bottom = area_for(mgr.root, mgr.root.winfo_pointerx(), mgr.root.winfo_pointery())
         sw, sh = right-left, bottom-top
-        PW, PH = min(900, sw - 48), min(720, sh - 48)
+        margin = min(48, max(16, min(sw, sh) // 12))
+        PW, PH = min(900, sw - 2 * margin), min(720, sh - 2 * margin)
         px, py = left+(sw - PW) // 2, top+(sh - PH) // 2
 
         self.bg = tk.Toplevel(mgr.root)
@@ -153,7 +154,7 @@ class SettingsScreen:
         self.win.attributes("-topmost", True)
         self.win.configure(bg=t.bg)
         self.win.geometry(f"{PW}x{PH}+{px}+{py}")
-        self.win.minsize(640, 520)
+        self.win.minsize(min(640, PW), min(520, PH))
         self.win.bind("<Escape>", lambda e: self.close())
         self.PW, self.PH = PW, PH
 
@@ -192,13 +193,17 @@ class SettingsScreen:
         shell.pack(fill='both', expand=True)
         paint_shell(shell, self.PW, self.PH, t, 'Make it yours', self.close, 'SETTINGS')
         body = tk.Frame(self.win, bg=t.bg)
-        body.place(x=24, y=110, width=self.PW-48, height=self.PH-134)
+        body.place(x=30, y=110, width=self.PW-60, height=self.PH-134)
         sidebar = tk.Frame(body, bg=t.bg, width=132)
         sidebar.pack(side='left', fill='y')
         sidebar.pack_propagate(False)
+        self._nav = {}
+        self._pages = {}
         for label, key in [('Appearance', 'appearance'), ('Widgets', 'widgets'), ('System', 'system')]:
-            RoundedButton(sidebar, label, lambda k=key: self._switch(k), t,
-                          accent=key == self._tab, width=120, height=44).pack(anchor='w', pady=(0, 8))
+            button = RoundedButton(sidebar, label, lambda k=key: self._switch(k), t,
+                                   accent=key == self._tab, width=120, height=44)
+            button.pack(anchor='w', pady=(0, 8))
+            self._nav[key] = button
 
         content = tk.Frame(body, bg=t.bg)
         content.pack(side="left", fill="both", expand=True)
@@ -216,10 +221,10 @@ class SettingsScreen:
         self._sb_canvas.bind("<ButtonRelease-1>", self._sb_release)
         self._sb_drag_y = None
         self._render_tab(t)
+        self._pages[self._tab] = (self._scroll_inner, 0.0)
 
     def _on_inner_configure(self, e):
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        self._canvas.itemconfig(self._win_id, width=self._canvas.winfo_width())
         self._update_scrollbar()
 
     def _on_canvas_configure(self, e):
@@ -253,9 +258,25 @@ class SettingsScreen:
         self._update_scrollbar()
 
     def _switch(self, key):
-        self.win.unbind("<MouseWheel>")
-        self._tab = key; self._scroll_pos = 0.0
-        self._build(config.get_theme(self.mgr.data))
+        if key == self._tab:
+            return
+        self._pages[self._tab] = (self._scroll_inner, self._canvas.yview()[0])
+        self._tab = key
+        t = config.get_theme(self.mgr.data)
+        for name, button in self._nav.items():
+            button.set_selected(name == key)
+        if key in self._pages:
+            self._scroll_inner, self._scroll_pos = self._pages[key]
+        else:
+            self._scroll_inner = tk.Frame(self._canvas, bg=t.bg)
+            self._scroll_inner.bind('<Configure>', self._on_inner_configure)
+            self._scroll_pos = 0.0
+            self._render_tab(t)
+            self._pages[key] = (self._scroll_inner, 0.0)
+        self._canvas.itemconfigure(self._win_id, window=self._scroll_inner)
+        self._canvas.configure(scrollregion=(0, 0, self._canvas.winfo_width(),
+                                            self._scroll_inner.winfo_reqheight()))
+        self.win.after_idle(self._restore_scroll)
 
     def _rebuild(self):
         self.win.unbind("<MouseWheel>")
@@ -298,6 +319,19 @@ class SettingsScreen:
 
     def _tab_appearance(self, t):
         p = self._scroll_inner
+        from desktop_widgets.services.screens import CORNERS
+        self._section(p, t, '+ and settings position')
+        corners = tk.Frame(p, bg=t.bg)
+        corners.pack(fill='x', padx=20, pady=(4, 12))
+        for i, key in enumerate(('top_left', 'top_right', 'bottom_left', 'bottom_right')):
+            def choose(value=key):
+                self.mgr.data['tray_corner'] = value
+                config.save(self.mgr.data)
+                self.mgr.tray_bar.reposition()
+                self._rebuild()
+            _btn(corners, CORNERS[key], choose, t,
+                 accent=self.mgr.data.get('tray_corner', 'bottom_right') == key,
+                 width=155).grid(row=i//2, column=i%2, padx=4, pady=4, sticky='w')
         PAD = 20
 
         self._section(p, t, "Workspace themes")
@@ -597,19 +631,40 @@ class SettingsScreen:
         p = self._scroll_inner
         PAD = 20
         self._section(p, t, "Auto-start with Windows")
-        has_task = task_exists()
-        tk.Label(p, text="✓  Enabled" if has_task else "✗  Disabled",
-                 font=("Segoe UI", 9), bg=t.bg,
-                 fg=t.ok if has_task else t.txt2).pack(anchor="w", padx=PAD, pady=(4,8))
+        status = tk.Label(p, text='Checking auto-start…', font=('Segoe UI', 9), bg=t.bg, fg=t.txt2)
+        status.pack(anchor='w', padx=PAD, pady=(4, 8))
+        controls = tk.Frame(p, bg=t.bg)
+        controls.pack(anchor='w', padx=PAD)
+        state = [False]
+        from concurrent.futures import ThreadPoolExecutor
+        def run_job(job, complete):
+            pool = ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(job)
+            pool.shutdown(wait=False)
+            def poll():
+                if not status.winfo_exists(): return
+                if not future.done():
+                    self.mgr.root.after(100, poll)
+                    return
+                try: complete(future.result())
+                except Exception:
+                    status.configure(text='Could not change auto-start. Try again.')
+            self.mgr.root.after(100, poll)
+        def show_state(enabled):
+            state[0] = enabled
+            status.configure(text='Enabled' if enabled else 'Disabled', fg=t.ok if enabled else t.txt2)
+            for child in controls.winfo_children(): child.destroy()
+            _btn(controls, 'Disable' if enabled else 'Enable auto-start', toggle, t,
+                 accent=not enabled).pack()
         def toggle():
-            if task_exists(): remove_task()
-            else:
-                exe = sys.executable if getattr(sys,"frozen",False) \
-                      else f'"{sys.executable}" "{os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "main.py"))}"'
-                create_task(exe)
-            self._rebuild()
-        _btn(p, "Disable" if has_task else "Enable auto-start", toggle, t,
-             accent=not has_task, padx=16, pady=7).pack(anchor="w", padx=PAD)
+            for child in controls.winfo_children(): child.destroy()
+            status.configure(text='Updating auto-start…')
+            exe = sys.executable if getattr(sys, 'frozen', False) else f'"{sys.executable}" "{os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "main.py"))}"'
+            def complete(ok):
+                show_state(not state[0] if ok else state[0])
+                if not ok: status.configure(text='Windows could not change auto-start. Try again.')
+            run_job(remove_task if state[0] else lambda: create_task(exe), complete)
+        run_job(task_exists, show_state)
         self._section(p, t, "Data")
         tk.Label(p, text=f"Saved to:  {config.DATA_FILE}",
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(

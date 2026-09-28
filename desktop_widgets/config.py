@@ -70,6 +70,7 @@ def _default() -> dict:
         "theme_preset": "Graphite",
         "design_revision": 1,
         "resize_enabled": True,
+        "tray_corner": "bottom_right",
     }
 
 
@@ -130,6 +131,9 @@ def _migrate(d: dict) -> dict:
     d.setdefault("next_id", 3)
     d.setdefault("corner_radius", 0)
     d.setdefault("resize_enabled", True)
+    from desktop_widgets.services.screens import CORNERS
+    if d.get("tray_corner") not in CORNERS:
+        d["tray_corner"] = "bottom_right"
     if "media" not in d:
         d["media"] = _default()["media"]
     else:

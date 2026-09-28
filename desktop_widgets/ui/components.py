@@ -5,6 +5,28 @@ from desktop_widgets.widgets.base_widget import _rounded_rect
 from desktop_widgets.theme import PRESETS
 
 
+def release_notes_view(parent, body, theme):
+    """Readable headings and bullets without interpreting HTML or remote content."""
+    frame = tk.Frame(parent, bg=theme.bg)
+    text = tk.Text(frame, wrap='word', bg=theme.btn, fg=theme.txt,
+                   font=('Segoe UI', 10), relief='flat', highlightthickness=0,
+                   padx=14, pady=12, height=8, spacing3=5)
+    scroll = tk.Scrollbar(frame, command=text.yview)
+    scroll.pack(side='right', fill='y')
+    text.pack(fill='both', expand=True)
+    text.configure(yscrollcommand=scroll.set)
+    text.tag_configure('heading', font=('Segoe UI', 12, 'bold'), spacing1=8, spacing3=8)
+    for line in body.splitlines():
+        if line.startswith('#'):
+            text.insert('end', line.lstrip('#').strip()+'\n', 'heading')
+        else:
+            if line.startswith(('- ', '* ')):
+                line = '•  ' + line[2:]
+            text.insert('end', line+'\n')
+    text.configure(state='disabled')
+    return frame
+
+
 def paint_shell(cv, width, height, theme, title, close, eyebrow='YOUR WORKSPACE'):
     _rounded_rect(cv, 1, 1, width-1, height-1, 24, fill=theme.bg, outline=theme.border)
     _rounded_rect(cv, 26, 27, 34, 35, 4, fill=theme.accent)
@@ -44,6 +66,13 @@ class RoundedButton(tk.Canvas):
         self.bind('<space>', lambda e: command())
         self.bind('<FocusIn>', lambda e: draw(True))
         self.bind('<FocusOut>', lambda e: draw())
+        def select(selected):
+            nonlocal accent, bg, fg
+            accent = selected
+            bg = theme.accent if selected else theme.btn
+            fg = theme.bg if selected else theme.txt
+            draw()
+        self.set_selected = select
 
 
 def theme_picker(parent, theme, current, on_select, bg=None):
@@ -68,8 +97,12 @@ def theme_picker(parent, theme, current, on_select, bg=None):
         cv.create_text(3, 92, text=name+('  ✓' if name == current else ''),
                        anchor='w', fill=theme.txt, font=('Segoe UI', 9))
         cv.bind('<Button-1>', lambda e, n=name: on_select(n))
+    last_cols = [None]
     def arrange(event):
         cols = max(1, event.width//142)
+        if cols == last_cols[0]:
+            return
+        last_cols[0] = cols
         for i, card in enumerate(cards):
             card.grid_configure(row=i//cols, column=i%cols)
     gallery.bind('<Configure>', arrange)

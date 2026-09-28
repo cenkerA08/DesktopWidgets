@@ -93,11 +93,12 @@ class Manager:
                    [w for w in (self.statsplus_win, self.notes_win, self.media_win) if w])
         if areas != self._screen_areas and not any(w._mode for w in widgets):
             self._screen_areas = areas
+            if self.tray_bar:
+                self.tray_bar.reposition()
             for widget in widgets:
-                x, y, w, h = widget.rect()
-                nx, ny = clamp(x, y, w, h, area_for(self.root, x, y, w, h))
-                if (nx, ny) != (x, y):
-                    widget.win.geometry(f"+{nx}+{ny}")
+                old_rect = widget.rect()
+                widget.redraw()
+                if widget.rect() != old_rect:
                     widget._save_geometry()
         self.root.after(2000, self._check_screens)
 
@@ -302,25 +303,24 @@ class Manager:
     # ── App management ─────────────────────────────────────
 
     def add_app(self, gid: int) -> None:
-        for gw in self.wins.values():
-            try: gw.win.withdraw()
-            except: pass
-        path = filedialog.askopenfilename(
-            title="Select .exe", parent=self.root,
-            filetypes=[("Executable", "*.exe"), ("All files", "*.*")])
-        for gw in self.wins.values():
-            try: gw.win.deiconify(); push_desktop(gw.win.winfo_id())
-            except: pass
-        if not path: return
-        default = os.path.splitext(os.path.basename(path))[0]
-        t = config.get_theme(self.data)
-        name = ask_string(self.root, "Add app", "App name:", initial=default, theme=t)
-        if not name: return
-        group = next(g for g in self.data["groups"] if g["id"] == gid)
-        group["apps"].append({"name": name.strip(), "path": path})
+        from desktop_widgets.ui.app_picker import AppPicker
+        AppPicker(self, lambda entries: self.add_app_entries(gid, entries))
+
+    def add_app_entries(self, gid, entries):
+        group = next((g for g in self.data['groups'] if g['id'] == gid), None)
+        if group is None:
+            return
+        existing = {os.path.normcase(a['path']) for a in group['apps']}
+        for entry in entries:
+            key = os.path.normcase(entry['path'])
+            if key not in existing:
+                group['apps'].append(dict(entry))
+                existing.add(key)
         config.save(self.data)
-        gw = self.wins[gid]
-        gw._refresh_size(); gw.redraw()
+        gw = self.wins.get(gid)
+        if gw:
+            gw._refresh_size()
+            gw.redraw()
 
     def remove_app(self, path: str, gid: int) -> None:
         t = config.get_theme(self.data)

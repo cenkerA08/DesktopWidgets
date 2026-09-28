@@ -183,8 +183,10 @@ class DocsWidget(BaseWidget):
                 fill=t.txt2, anchor="center", justify="center")
             return
 
-        for i, f in enumerate(files):
-            col = i % self.cols; row = i // self.cols
+        cols = max(1, min(self.cols, (self.W - 2*PAD) // CELL_W))
+        for i in self.tile_range(len(files), cols, CELL_H, PAD):
+            f = files[i]
+            col = i % cols; row = i // cols - self._row_offset
             ax  = PAD + col * CELL_W; ay = HDR_H + PAD + row * CELL_H
             cx  = ax + CELL_W // 2
 

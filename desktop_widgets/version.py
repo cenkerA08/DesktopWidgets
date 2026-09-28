@@ -11,7 +11,7 @@ from pathlib import Path
 
 from desktop_widgets.services.safe_io import atomic_write_text
 
-VERSION = "1.0.47"
+VERSION = "1.0.49"
 
 # Your GitHub repo — change this to your actual username/repo
 GITHUB_REPO = "cenkerA08/DesktopWidgets"

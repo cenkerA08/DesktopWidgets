@@ -48,6 +48,20 @@ build.py, release.bat      # Build and release tooling
 
 Settings → Appearance offers Graphite, Aurora, Rose Quartz, Ocean Mist and
 Porcelain, with adjustable card corners. Existing palettes remain available.
+The **+ and settings position** selector places the floating controls in any of
+the four corners. Widgets reserve space for the Windows taskbar even with
+auto-hide enabled. Large app and file folders scroll with the mouse wheel.
+Settings pages are reused when switching tabs, and the Windows auto-start check
+runs in the background.
+
+Use a folder's **+** button to search installed desktop and Microsoft Store apps,
+or **Browse files** to select executables and shortcuts. Game `.lnk` and `.url`
+shortcuts retain their launch arguments and launcher behavior; dropped shortcuts
+are kept in their original location. For games such as Call of Duty, use the
+shortcut created by Steam, Battle.net or Xbox if the game's executable requires
+its launcher. Existing entries imported as raw executables can be removed and
+added again using the original shortcut.
+
 Focus view uses a stable rounded card: previous/next buttons or arrow keys switch
 folders. The mouse wheel switches folders when all items fit; for larger folders
 it scrolls the contents. Shift + wheel always switches folders.
@@ -129,6 +143,8 @@ Release ZIPs use the same format. The updater downloads the release ZIP to a sta
 
 Release checks run in the background after startup. Nothing downloads or installs
 until you accept the update prompt; declining keeps the current version running.
+The update screen shows release notes, download progress, verification and
+installation status without blocking the UI, and offers retry after failure.
 Release builds bundle your versioned patch notes, and updates use the same notes
 from the GitHub release description for the post-update changelog. Ordinary
 development builds can fall back to Git commit subjects.

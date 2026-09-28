@@ -7,7 +7,7 @@ from __future__ import annotations
 import os, sys, subprocess, ctypes, ctypes.wintypes, math, tempfile
 import xml.etree.ElementTree as ET
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from desktop_widgets.theme import Theme, CHROMA, SNAP, MARGIN
 
 try:
@@ -445,7 +445,11 @@ def _extract(path: str, size: int):
         if ico and os.path.exists(ico):
             r = _load_ico(ico, size)
             if r: return r
-        return _letter_tile(path, size)
+        r = _shell_icon(path, size)
+        return r or _letter_tile(path, size)
+    if path.lower().startswith('shell:') or path.lower().endswith(('.lnk', '.url', '.appref-ms')):
+        r = _shell_icon(path, size)
+        if r: return r
     # Folders — use SHGetFileInfo to get the system folder icon
     if os.path.isdir(path):
         r = _shell_icon(path, size)
@@ -465,8 +469,16 @@ def _extract(path: str, size: int):
 
 def _shell_icon(path: str, size: int):
     """Extract icon via SHGetFileInfo — works for folders and any file type."""
+    ole32 = None
+    com_initialized = False
+    pidl = None
+    fi = None
     try:
         import ctypes, ctypes.wintypes
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitialize.argtypes = [ctypes.c_void_p]
+        ole32.CoInitialize.restype = ctypes.c_long
+        com_initialized = ole32.CoInitialize(None) >= 0
         SHGFI_ICON      = 0x000000100
         SHGFI_LARGEICON = 0x000000000
         SHGFI_SMALLICON = 0x000000001
@@ -480,17 +492,49 @@ def _shell_icon(path: str, size: int):
                 ("szTypeName",    ctypes.c_wchar * 80),
             ]
 
-        fi  = SHFILEINFO()
-        res = ctypes.windll.shell32.SHGetFileInfoW(
-            path, 0, ctypes.byref(fi), ctypes.sizeof(fi),
-            SHGFI_ICON | SHGFI_LARGEICON)
+        shell32 = ctypes.windll.shell32
+        get_info = shell32.SHGetFileInfoW
+        get_info.argtypes = [ctypes.c_void_p, ctypes.wintypes.DWORD,
+                            ctypes.POINTER(SHFILEINFO), ctypes.c_uint, ctypes.c_uint]
+        get_info.restype = ctypes.c_size_t
+        fi = SHFILEINFO()
+        pidl = ctypes.c_void_p()
+        flags = SHGFI_ICON | SHGFI_LARGEICON
+        target = ctypes.cast(ctypes.c_wchar_p(path), ctypes.c_void_p)
+        if path.lower().startswith('shell:'):
+            parse = shell32.SHParseDisplayName
+            parse.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p,
+                              ctypes.POINTER(ctypes.c_void_p), ctypes.c_ulong, ctypes.c_void_p]
+            parse.restype = ctypes.c_long
+            if parse(path, None, ctypes.byref(pidl), 0, None) != 0:
+                return None
+            target = pidl
+            flags |= 0x8  # SHGFI_PIDL: virtual apps do not have a filesystem path.
+        res = get_info(target, 0, ctypes.byref(fi), ctypes.sizeof(fi), flags)
         if not res or not fi.hIcon:
             return None
         img = _hicon_to_pil(fi.hIcon, 64, size)
-        ctypes.windll.user32.DestroyIcon(fi.hIcon)
         return ImageTk.PhotoImage(img) if img else None
     except Exception:
         return None
+    finally:
+        if fi and fi.hIcon:
+            try:
+                ctypes.windll.user32.DestroyIcon.argtypes = [ctypes.wintypes.HICON]
+                ctypes.windll.user32.DestroyIcon(fi.hIcon)
+            except Exception:
+                pass
+        if pidl and pidl.value:
+            try:
+                ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+                ole32.CoTaskMemFree(pidl)
+            except Exception:
+                pass
+        if com_initialized:
+            try:
+                ole32.CoUninitialize()
+            except Exception:
+                pass
 
 
 def _folder_tile(path: str, size: int):
@@ -590,13 +634,20 @@ def _letter_tile(path: str, size: int):
 # ── App launching ──────────────────────────────────────────
 def launch_app(path: str) -> None:
     from desktop_widgets.config import URL_APPS
+    if path.lower().startswith('shell:appsfolder\\'):
+        try:
+            subprocess.Popen([os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'explorer.exe'), path])
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror('Could not launch app', str(e))
+        return
     if path in URL_APPS:
         try: os.startfile(URL_APPS[path]["launch"])
         except Exception as e:
             tk.messagebox.showerror("Error", str(e))
         return
     # .lnk files (UWP/Store apps, shortcuts) — always use os.startfile
-    if path.lower().endswith(".lnk"):
+    if path.lower().endswith((".lnk", ".url", ".appref-ms")):
         try: os.startfile(path)
         except Exception as e:
             tk.messagebox.showerror("Error", str(e))
@@ -611,7 +662,7 @@ def launch_app(path: str) -> None:
         if os.path.isdir(path):
             os.startfile(path)
         else:
-            os.startfile(path)
+            os.startfile(path, cwd=os.path.dirname(os.path.abspath(path)))
     except Exception as e:
         tk.messagebox.showerror("Error", str(e))
 

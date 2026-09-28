@@ -102,6 +102,7 @@ class BaseWidget:
 
     def redraw(self) -> None:
         """Full redraw. Calls subclass _draw()."""
+        self.fit_work_area()
         self.cv.delete("all")
         t  = self._theme()
         r  = config.get_corner_radius(self.mgr.data)
@@ -142,6 +143,43 @@ class BaseWidget:
                 self.cv.create_line(self.W-14-off, self.H-12, self.W-14, self.H-12-off,
                                     fill=gc, width=1)
         self._draw()
+
+    def fit_work_area(self):
+        """Keep content growth, expansion and display changes above the taskbar."""
+        x, y = self._win_x(), self._win_y()
+        area = area_for(self.win, x, y, self.W, self.H)
+        left, top, right, bottom = area
+        width = min(self.W, max(1, right-left-20))
+        height = min(self.H, max(1, bottom-top-20))
+        nx, ny = clamp(x, y, width, height, area)
+        if (width, height, nx, ny) != (self.W, self.H, x, y):
+            self.W, self.H = width, height
+            self.win.geometry(f'{width}x{height}+{nx}+{ny}')
+            self.cv.configure(width=width, height=height)
+
+    def tile_range(self, count, cols, cell_h, pad):
+        """Scroll rows inside the widget when its contents exceed the work area."""
+        rows = max(1, (self.H - HDR_H - 2*pad) // cell_h)
+        total_rows = (count + cols - 1) // cols
+        self._max_row_offset = max(0, total_rows - rows)
+        self._row_offset = min(getattr(self, '_row_offset', 0), self._max_row_offset)
+        if not getattr(self, '_tile_wheel_bound', False):
+            self.cv.bind('<MouseWheel>', self._scroll_tiles)
+            self._tile_wheel_bound = True
+        if self._max_row_offset:
+            self.cv.create_text(self.W//2, self.H-7,
+                                text='Scroll for more', fill=self._theme().txt2,
+                                font=('Segoe UI', 7))
+        start = self._row_offset * cols
+        return range(start, min(count, start + rows*cols))
+
+    def _scroll_tiles(self, event):
+        if self._collapsed or self._mode or not event.delta:
+            return
+        self._row_offset = max(0, min(self._max_row_offset,
+                                      self._row_offset + (-1 if event.delta > 0 else 1)))
+        self.redraw()
+        return 'break'
 
     def destroy(self) -> None:
         self._hide_prev()
@@ -272,6 +310,8 @@ class BaseWidget:
         if self._mode == "drag":
             nx = self._win_x() + dx
             ny = self._win_y() + dy
+            nx, ny = clamp(nx, ny, self.W, self.H,
+                           area_for(self.win, e.x_root, e.y_root))
             self.win.geometry(f"+{nx}+{ny}")
             self._show_prev(nx, ny)
 
@@ -304,6 +344,10 @@ class BaseWidget:
         else:
             nh = self.H
 
+        area = area_for(self.win, x0, y0, w0, h0)
+        left, top, right, bottom = area
+        nw = min(nw, max(1, (x0 + w0 - left - 10) if "w" in edge else right - x0 - 10))
+        nh = min(nh, max(1, (y0 + h0 - top - 10) if "n" in edge else bottom - y0 - 10))
         self.W = nw
         if not self._collapsed:
             self.H = nh

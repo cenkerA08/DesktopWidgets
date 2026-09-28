@@ -173,7 +173,7 @@ class GroupWidget(BaseWidget):
             return
 
         # ── Tile layout ───────────────────────────────────
-        cols   = self.cols
+        cols   = max(1, min(self.cols, (self.W - 2*_th.PAD) // _th.CELL_W))
         cell_w = _th.CELL_W
         cell_h = _th.CELL_H
         icon_sz = _th.ICON_SZ
@@ -183,8 +183,9 @@ class GroupWidget(BaseWidget):
         _tile_bg_cache = self._tile_bg_cache
         if len(_tile_bg_cache) > 16:
             _tile_bg_cache.clear()
-        for i, app in enumerate(apps):
-            col = i % cols; row = i // cols
+        for i in self.tile_range(len(apps), cols, cell_h, _th.PAD):
+            app = apps[i]
+            col = i % cols; row = i // cols - self._row_offset
             ax  = _th.PAD + col * cell_w
             ay  = HDR_H + _th.PAD + row * cell_h
             cx  = ax + cell_w // 2
@@ -417,52 +418,7 @@ class GroupWidget(BaseWidget):
     def _on_drop(self, event) -> None:
         try: paths = self.win.tk.splitlist(event.data)
         except: paths = [event.data]
-        resolved  = []
-        lnk_paths = {}   # resolved_path → original .lnk path
-        for p in paths:
-            p = p.strip("{}").strip()
-            if not p: continue
-            ext = os.path.splitext(p)[1].lower()
-            if ext == ".lnk":
-                r = resolve_lnk(p)
-                if r:
-                    lnk_paths[r] = p   # remember original for recycling
-                    p = r
-                else: continue
-            elif ext == ".url":
-                r = resolve_url(p)
-                if r: p = r
-                else: continue
-            if p in config.URL_APPS: resolved.append(p)
-            elif p.lower().endswith(".exe") and os.path.exists(p): resolved.append(p)
-        if not resolved: return
-        existing = {a["path"] for a in self.group["apps"]}
-        added = 0
-        for path in resolved:
-            if path in existing: continue
-            default = os.path.splitext(os.path.basename(path))[0]
-            self.mgr.lift_widgets()
-            name = ask_string(self.mgr.root, "Add app",
-                              f"Name for '{default}':", initial=default,
-                              theme=self._theme())
-            self.mgr.root.after(100, self.mgr.push_widgets)
-            if name:
-                entry = {"name": name.strip(), "path": path}
-                if path in config.URL_APPS:
-                    entry["launch"] = config.URL_APPS[path]["launch"]
-                    entry["icon_path"] = config.URL_APPS[path].get("icon_path")
-                self.group["apps"].append(entry)
-                clear_icon_cache(path)
-                added += 1
-                # Recycle the original .lnk from desktop if it came from there
-                if path in lnk_paths:
-                    _recycle(lnk_paths[path])
-        if added:
-            self._refresh_size()
-            config.save(self.mgr.data)
-            self.redraw()
-
-    # ── Bind events (called by manager after __init__) ─────
+        self._on_wmdrop(paths)
 
     def bind_events(self) -> None:
         self.cv.bind("<Double-Button-1>", self._dbl)
@@ -493,49 +449,20 @@ class GroupWidget(BaseWidget):
         Called by the native WM_DROPFILES handler (admin-mode DnD fallback).
         Mirrors the logic of _on_drop but receives a plain list of path strings.
         """
-        resolved  = []
-        lnk_paths = {}
-        for p in paths:
-            p = p.strip()
-            if not p: continue
-            ext = os.path.splitext(p)[1].lower()
-            if ext == ".lnk":
-                r = resolve_lnk(p)
-                if r:
-                    lnk_paths[r] = p
-                    p = r
-                else: continue
-            elif ext == ".url":
-                r = resolve_url(p)
-                if r: p = r
-                else: continue
-            if p in config.URL_APPS:
-                resolved.append(p)
-            elif p.lower().endswith(".exe") and os.path.exists(p):
-                resolved.append(p)
-        if not resolved: return
-        existing = {a["path"] for a in self.group["apps"]}
-        added = 0
-        for path in resolved:
-            if path in existing: continue
-            default = os.path.splitext(os.path.basename(path))[0]
-            name = ask_string(self.mgr.root, "Add app",
-                              f"Name for '{default}':", initial=default,
-                              theme=self._theme())
-            if name:
-                entry = {"name": name.strip(), "path": path}
-                if path in config.URL_APPS:
-                    entry["launch"] = config.URL_APPS[path]["launch"]
-                    entry["icon_path"] = config.URL_APPS[path].get("icon_path")
-                self.group["apps"].append(entry)
-                clear_icon_cache(path)
-                added += 1
-                if path in lnk_paths:
-                    _recycle(lnk_paths[path])
-        if added:
-            self._refresh_size()
-            config.save(self.mgr.data)
-            self.redraw()
+        from desktop_widgets.services.apps import app_entry
+        from tkinter import messagebox
+        entries, rejected = [], []
+        for path in paths:
+            try:
+                entries.append(app_entry(path))
+            except ValueError:
+                rejected.append(os.path.basename(path))
+        if entries:
+            self.mgr.add_app_entries(self.group['id'], entries)
+        if rejected:
+            messagebox.showinfo('Could not add app',
+                'Use the + button to search installed apps, or add an .exe, .lnk or .url shortcut.\n\n'
+                + '\n'.join(rejected), parent=self.win)
 
     def _on_leave(self, e) -> None:
         # KEY FIX: never reset cursor/hover while any interaction is active.

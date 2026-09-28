@@ -1,15 +1,13 @@
-# DesktopWidget 1.0.48
+# DesktopWidget 1.0.49
 
-## Media player
+## Settings and app picker
 
-- Redesigned the player with a rounded album-art panel and clearer track information.
-- Added larger, smoother playback controls with hover feedback.
-- Show elapsed and total playback time.
-- Crop artwork without stretching and keep long titles and artist names within the card.
-- Improve the idle state and match the selected dark or light theme.
-- Preserve rounded widget corners and remove the resize grip from the fixed-size player.
+- Refreshed the Add apps screen with clearer search, results, and empty-state feedback.
+- Center the settings and Add apps screens in the active monitor's work area with a comfortable margin from the screen edges.
+- Improve spacing and visual hierarchy in the Add apps dialog.
 
-## Improvements
 
-- Reuse unchanged artwork and update the timeline without repainting the whole player.
-- Clear inactive controls when playback ends or the widget is collapsed.
+## Reliability
+
+- Add coverage for screen placement, Add apps empty states, and COM initialization during shell icon lookup.
+- Fix resource cleanup for shell icons and their allocated Windows handles.

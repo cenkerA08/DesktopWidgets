@@ -118,15 +118,11 @@ class TrayBar:
     def __init__(self, mgr: "Manager") -> None:
         self.mgr = mgr
         t = config.get_theme(mgr.data)
-        sw = mgr.root.winfo_screenwidth()
-        sh = mgr.root.winfo_screenheight()
-        bx = sw - self.W - 58
-        by = sh - self.H - 44
 
         self.win = tk.Toplevel(mgr.root)
         self.win.overrideredirect(True)
         self.win.configure(bg=t.border)   # border colour = 1px gap between halves
-        self.win.geometry(f"{self.W}x{self.H}+{bx}+{by}")
+        self.reposition()
         self.win.columnconfigure(0, weight=1)
         self.win.columnconfigure(1, weight=1)
 
@@ -144,9 +140,18 @@ class TrayBar:
             command=mgr.open_settings)
         self._gear.grid(row=0, column=1, sticky="nsew")
 
-        self.win.after(500, lambda: push_desktop(self.win.winfo_id()))
+        self._desktop_job = self.win.after(500, lambda: push_desktop(self.win.winfo_id()))
+
+    def reposition(self) -> None:
+        from desktop_widgets.services.screens import area_for, corner_position
+        area = area_for(self.mgr.root, 0, 0,
+                        self.mgr.root.winfo_screenwidth(), self.mgr.root.winfo_screenheight())
+        x, y = corner_position(area, self.W, self.H,
+                               self.mgr.data.get("tray_corner", "bottom_right"))
+        self.win.geometry(f"{self.W}x{self.H}+{x}+{y}")
 
     def redraw(self) -> None:
+        self.reposition()
         t = config.get_theme(self.mgr.data)
         self.win.configure(bg=t.border)
         self._plus.bg_normal = t.hdr;  self._plus.bg_hover = t.btn_h
@@ -157,5 +162,7 @@ class TrayBar:
         self._gear.configure(bg=t.hdr)
 
     def destroy(self) -> None:
+        try: self.win.after_cancel(self._desktop_job)
+        except tk.TclError: pass
         try: self.win.destroy()
         except: pass

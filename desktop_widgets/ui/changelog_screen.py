@@ -1,131 +1,47 @@
-"""
-changelog_screen.py — Post-update what's new screen.
-Shown once on first launch after an update.
-"""
-from __future__ import annotations
+﻿"""A themed, scrollable summary shown once after an update."""
 import tkinter as tk
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from desktop_widgets.manager import Manager
+from desktop_widgets import config
+from desktop_widgets.theme import CHROMA
+from desktop_widgets.services.screens import area_for
+from desktop_widgets.ui.components import paint_shell, RoundedButton, release_notes_view
 
 
 class ChangelogScreen:
-    def __init__(self, mgr: "Manager", version: str, notes: list[str]) -> None:
+    def __init__(self, mgr, version, notes):
         self.mgr = mgr
-
-        import desktop_widgets.config as config
-        t  = config.get_theme(mgr.data)
-        sw = mgr.root.winfo_screenwidth()
-        sh = mgr.root.winfo_screenheight()
-        PW, PH = 520, min(480, sh - 40)
-        px, py = (sw - PW) // 2, (sh - PH) // 2
-
-        # Backdrop
+        t = config.get_theme(mgr.data)
+        left, top, right, bottom = area_for(mgr.root, mgr.root.winfo_pointerx(), mgr.root.winfo_pointery())
+        width, height = min(640, right-left-48), min(600, bottom-top-48)
         self.bg = tk.Toplevel(mgr.root)
         self.bg.overrideredirect(True)
-        self.bg.attributes("-topmost", False)
-        self.bg.attributes("-alpha", 0.0)
-        self.bg.configure(bg="#000000")
-        self.bg.geometry(f"{sw}x{sh}+0+0")
-        self._fade(0.0)
-
-        # Panel
+        self.bg.configure(bg='#000000')
+        self.bg.attributes('-alpha', 0.45)
+        self.bg.geometry(f'{right-left}x{bottom-top}+{left}+{top}')
         self.win = tk.Toplevel(mgr.root)
         self.win.overrideredirect(True)
-        self.win.attributes("-topmost", False)
-        self.win.configure(bg=t.bg)
-        self.win.geometry(f"{PW}x{PH}+{px}+{py}")
-        self.win.bind("<Escape>", lambda e: self._close())
-
-        self.bg.update_idletasks()
-        self.win.lift(self.bg)
-        self.win.focus_force()
-        self.win.grab_set()
-
-        self._build(t, version, notes)
-
-    # ── Fade ───────────────────────────────────────────────
-
-    def _fade(self, cur=0.0):
-        cur = round(min(0.55, cur + 0.05), 3)
-        try: self.bg.attributes("-alpha", cur)
-        except: return
-        if cur < 0.55: self.bg.after(14, lambda: self._fade(cur))
-
-    # ── Build ──────────────────────────────────────────────
-
-    def _build(self, t, version: str, notes: list[str]):
-        # ── Header ────────────────────────────────────────
-        hdr = tk.Frame(self.win, bg=t.hdr)
-        hdr.pack(fill="x")
-
-        tk.Label(hdr, text="🎉  Updated!",
-                 font=("Segoe UI", 13, "bold"),
-                 bg=t.hdr, fg=t.txt, padx=20, pady=14).pack(side="left")
-
-        ver_lbl = tk.Label(hdr, text=f"v{version}",
-                           font=("Segoe UI", 9),
-                           bg=t.accent, fg="white",
-                           padx=10, pady=4)
-        ver_lbl.pack(side="left", pady=14)
-
-        close_lbl = tk.Label(hdr, text="✕", font=("Segoe UI", 12),
-                             bg=t.hdr, fg=t.txt2, cursor="hand2",
-                             padx=16, pady=14)
-        close_lbl.pack(side="right")
-        close_lbl.bind("<Enter>",           lambda e: close_lbl.config(bg="#2a1515", fg="#ff5555"))
-        close_lbl.bind("<Leave>",           lambda e: close_lbl.config(bg=t.hdr, fg=t.txt2))
-        close_lbl.bind("<ButtonRelease-1>", lambda e: self._close())
-
-        # Accent line
-        tk.Frame(self.win, bg=t.accent, height=2).pack(fill="x")
-
-        # ── Body ──────────────────────────────────────────
+        self.win.configure(bg=CHROMA)
+        self.win.attributes('-transparentcolor', CHROMA)
+        self.win.geometry(f'{width}x{height}+{left+(right-left-width)//2}+{top+(bottom-top-height)//2}')
+        self.win.bind('<Escape>', lambda e: self._close())
+        shell = tk.Canvas(self.win, bg=CHROMA, highlightthickness=0)
+        shell.pack(fill='both', expand=True)
+        paint_shell(shell, width, height, t, 'You’re up to date', self._close,
+                    f'DESKTOPWIDGET {version}')
         body = tk.Frame(self.win, bg=t.bg)
-        body.pack(fill="both", expand=True, padx=24, pady=20)
-
-        tk.Label(body, text="What's new in this update:",
-                 font=("Segoe UI", 9, "bold"),
-                 bg=t.bg, fg=t.txt2).pack(anchor="w", pady=(0, 10))
-
-        from tkinter.scrolledtext import ScrolledText
-        text = ScrolledText(body, wrap="word", height=9, font=("Segoe UI", 10),
-                            bg=t.bg, fg=t.txt, relief="flat", borderwidth=0,
-                            highlightthickness=0, padx=4, pady=4)
-        text.pack(fill="both", expand=True)
-        text.insert("1.0", "\n".join(notes))
-        text.config(state="disabled")
-
-        # ── Footer ────────────────────────────────────────
-        tk.Frame(self.win, bg=t.border, height=1).pack(fill="x")
-        footer = tk.Frame(self.win, bg=t.hdr)
-        footer.pack(fill="x")
-
-        tk.Label(footer, text="Thanks for staying updated  ♥",
-                 font=("Segoe UI", 9), bg=t.hdr, fg=t.txt2,
-                 padx=20, pady=14).pack(side="left")
-
-        try:
-            c  = t.accent.lstrip("#")
-            r, g, b = int(c[0:2],16), int(c[2:4],16), int(c[4:6],16)
-            fg = "#000000" if (r*299+g*587+b*114)/1000 > 160 else "#ffffff"
-        except Exception:
-            fg = "#ffffff"
-
-        tk.Button(footer, text="Got it  ✓", command=self._close,
-                  font=("Segoe UI", 10, "bold"),
-                  bg=t.accent, fg=fg,
-                  activebackground=t.accent, activeforeground=fg,
-                  relief="flat", bd=0, cursor="hand2",
-                  padx=24, pady=10).pack(side="right", padx=16, pady=10)
-
-    # ── Close ──────────────────────────────────────────────
+        body.place(x=26, y=108, width=width-52, height=height-202)
+        tk.Label(body, text='What’s new', bg=t.bg, fg=t.txt2,
+                 font=('Segoe UI', 11, 'bold')).pack(anchor='w', pady=(0, 12))
+        release_notes_view(body, '\n'.join(notes), t).pack(fill='both', expand=True)
+        footer = tk.Frame(self.win, bg=t.bg)
+        footer.place(x=26, y=height-74, width=width-52, height=48)
+        tk.Label(footer, text='Your workspace is ready.', bg=t.bg, fg=t.txt2,
+                 font=('Segoe UI', 10)).pack(side='left')
+        RoundedButton(footer, 'Back to desktop', self._close, t, accent=True).pack(side='right')
+        self.win.lift(self.bg)
+        self.win.grab_set()
+        self.win.focus_set()
 
     def _close(self):
-        try: self.win.grab_release()
-        except: pass
-        try: self.bg.destroy()
-        except: pass
-        try: self.win.destroy()
-        except: pass
+        self.win.grab_release()
+        self.win.destroy()
+        self.bg.destroy()

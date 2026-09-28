@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from desktop_widgets.services import updater
-from desktop_widgets.services.screens import select_area, clamp
+from desktop_widgets.services.screens import select_area, clamp, reserve_taskbar, corner_position
 from desktop_widgets.services.release_notes import load_notes
 from desktop_widgets.utils import magnetic_snap, reflow_push_down
 from desktop_widgets import config
@@ -25,6 +25,26 @@ class ScreenTests(unittest.TestCase):
 
     def test_taskbar_and_negative_bounds(self):
         self.assertEqual(clamp(-100, 1000, 300, 200, self.areas[0]), (-310, 830))
+
+    def test_auto_hidden_taskbar_still_reserves_full_height(self):
+        monitor = (0, 0, 2560, 1440)
+        area = reserve_taskbar(monitor, monitor, 3, 48)
+        self.assertEqual(area, (0, 0, 2560, 1392))
+        self.assertEqual(corner_position(area, 80, 34, 'bottom_right'), (2464, 1342))
+        self.assertEqual(reserve_taskbar(area, monitor, 3, 48), area)
+
+    def test_all_corners_with_left_taskbar_on_negative_monitor(self):
+        monitor = (-1920, -1080, 0, 0)
+        area = reserve_taskbar(monitor, monitor, 0, 48)
+        expected = {'top_left': (-1856, -1064), 'top_right': (-96, -1064),
+                    'bottom_left': (-1856, -50), 'bottom_right': (-96, -50)}
+        for key, position in expected.items():
+            self.assertEqual(corner_position(area, 80, 34, key), position)
+
+    def test_top_and_right_taskbars(self):
+        monitor = (0, 0, 1920, 1080)
+        self.assertEqual(reserve_taskbar(monitor, monitor, 1, 48), (0, 48, 1920, 1080))
+        self.assertEqual(reserve_taskbar(monitor, monitor, 2, 48), (0, 0, 1872, 1080))
 
     def test_migration_keeps_negative_saved_positions(self):
         data = config._default()
@@ -56,18 +76,19 @@ class UpdateTests(unittest.TestCase):
             download.assert_not_called()
             install.assert_not_called()
 
-    def test_declining_never_installs(self):
+    def test_check_opens_offer_without_installing(self):
         root = Mock()
         root.grab_current.return_value = None
         future = Future()
         future.set_result(self.release)
         with patch.object(updater, 'ThreadPoolExecutor') as executor, \
-             patch('tkinter.messagebox.askyesno', return_value=False), \
+             patch('desktop_widgets.ui.update_screen.UpdateScreen') as screen, \
              patch.object(updater, 'apply_update') as install:
             executor.return_value.submit.return_value = future
             updater.start_update_check(root)
             root.after.call_args.args[1]()
             install.assert_not_called()
+            screen.assert_called_once()
 
     def test_checksum_missing_is_not_offered(self):
         release = dict(self.release, assets=self.release['assets'][:1])

@@ -159,7 +159,8 @@ def main() -> None:
 
         from desktop_widgets.services.updater import start_update_check
         import desktop_widgets.config as config
-        start_update_check(app.root, before_install=lambda: config.save(app.data))
+        start_update_check(app.root, before_install=lambda: config.save(app.data),
+                           theme=config.get_theme(app.data))
         app.run()
     except Exception:
         import traceback

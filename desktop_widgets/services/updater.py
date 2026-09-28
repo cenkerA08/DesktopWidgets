@@ -52,14 +52,19 @@ def _find_checksum(release: dict, zip_name: str):
     return None, None
 
 
-def _download(url: str, dest: str) -> None:
+def _download(url: str, dest: str, progress=None) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "DesktopWidget-Updater"})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as response, open(dest, "wb") as out:
+        total = int(response.headers.get('Content-Length') or 0)
+        received = 0
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
                 break
             out.write(chunk)
+            received += len(chunk)
+            if progress:
+                progress('Downloading update', received / total if total else None)
     if not os.path.isfile(dest) or os.path.getsize(dest) <= 0:
         raise RuntimeError("Downloaded update is empty.")
 
@@ -167,9 +172,8 @@ def check_for_update() -> dict | None:
     return release
 
 
-def start_update_check(root, before_install=lambda: None) -> None:
+def start_update_check(root, before_install=lambda: None, theme=None) -> None:
     """Check off-thread; ask on the Tk thread before any download or install."""
-    from tkinter import messagebox
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="update-check")
     future = pool.submit(check_for_update)
     pool.shutdown(wait=False)
@@ -189,19 +193,12 @@ def start_update_check(root, before_install=lambda: None) -> None:
         if root.grab_current():
             root.after(1000, poll)
             return
-        if messagebox.askyesno(
-                "Update available",
-                f"DesktopWidget {release['tag_name']} is available (installed: {VERSION}).\n\n"
-                "Download and install it now? The app will restart.\n"
-                "Choose No to keep using this version.", parent=root):
-            before_install()
-            if not apply_update(release):
-                messagebox.showerror("Update failed", "The update could not be installed. "
-                                     "Please try again next time you start the app.", parent=root)
+        from desktop_widgets.ui.update_screen import UpdateScreen
+        UpdateScreen(root, release, before_install, theme=theme)
     root.after(150, poll)
 
 
-def apply_update(release: dict) -> bool:
+def apply_update(release: dict, progress=None, restart=True):
     """Install an update only after the UI has obtained consent."""
     url, fname = _find_zip(release)
     checksum_url, _ = _find_checksum(release, fname or "")
@@ -214,9 +211,14 @@ def apply_update(release: dict) -> bool:
     with tempfile.TemporaryDirectory(prefix="dw_upd_") as staging:
         tmp_zip = os.path.join(staging, fname)
         try:
+            if progress: progress('Preparing download', None)
             checksum_text = _download_text(checksum_url)
             expected_sha = parse_sha256_text(checksum_text, expected_filename=fname)
-            _download(url, tmp_zip)
+            if progress:
+                _download(url, tmp_zip, progress)
+                progress('Verifying download', None)
+            else:
+                _download(url, tmp_zip)
             actual_sha = verify_sha256(tmp_zip, expected_sha)
             _log_update_error(f"Verified update SHA-256: {actual_sha}")
         except Exception as e:
@@ -228,6 +230,7 @@ def apply_update(release: dict) -> bool:
             return False
 
         try:
+            if progress: progress('Installing update', None)
             pending = _extract_and_replace(tmp_zip, install_dir)
         except Exception as e:
             _log_update_error(f"Update extraction failed: {e}")
@@ -242,6 +245,13 @@ def apply_update(release: dict) -> bool:
     except Exception as exc:
         _log_update_error(f"Could not save release notes: {exc}")
 
+    if progress: progress('Ready to restart', 1.0)
+    if not restart:
+        return lambda: _restart(install_dir, pending, exe_path)
+    _restart(install_dir, pending, exe_path)
+
+
+def _restart(install_dir, pending, exe_path):
     if pending:
         # Some files were locked — use swap bat to finish after exit
         bat = _write_swap_bat(install_dir, pending, exe_path)
