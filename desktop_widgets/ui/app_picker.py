@@ -4,6 +4,7 @@ from tkinter import filedialog
 from concurrent.futures import ThreadPoolExecutor
 
 from desktop_widgets.services.apps import app_entry, installed_apps
+from desktop_widgets.utils import get_icon
 from desktop_widgets.ui.components import RoundedButton
 from desktop_widgets import config
 
@@ -71,6 +72,22 @@ class AppPicker:
         self.list.configure(yscrollcommand=scrollbar.set)
         self.list.bind('<Double-Button-1>', lambda e: self.add_selected())
         self.list.bind('<Return>', lambda e: self.add_selected())
+        self.list.bind('<<ListboxSelect>>', self.preview_selection)
+
+        preview = tk.Frame(self.win, bg=t.btn, highlightthickness=1,
+                           highlightbackground=t.border)
+        preview.pack(fill='x', padx=28, pady=(12, 0))
+        self.preview_icon = tk.Label(preview, bg=t.btn, width=56, height=56)
+        self.preview_icon.pack(side='left', padx=(12, 8), pady=8)
+        details = tk.Frame(preview, bg=t.btn)
+        details.pack(side='left', fill='x', expand=True)
+        self.preview_name = tk.Label(details, text='Select an app to preview its icon',
+                                     bg=t.btn, fg=t.txt, anchor='w', font=('Segoe UI', 10, 'bold'))
+        self.preview_name.pack(fill='x')
+        self.preview_hint = tk.Label(details, text='Use a game shortcut for its original artwork.',
+                                     bg=t.btn, fg=t.txt2, anchor='w', font=('Segoe UI', 9))
+        self.preview_hint.pack(fill='x')
+        self._preview_image = None
 
         footer = tk.Frame(self.win, bg=t.bg)
         footer.pack(fill='x', padx=28, pady=(12, 22))
@@ -117,6 +134,17 @@ class AppPicker:
         if entries:
             self.on_add(entries)
             self.win.destroy()
+
+    def preview_selection(self, event=None):
+        selected = self.list.curselection()
+        if not selected or selected[0] >= len(self.visible):
+            return
+        entry = self.visible[selected[0]]
+        self.preview_name.configure(text=entry['name'])
+        self.preview_hint.configure(text='Windows shortcut' if entry['path'].lower().endswith('.lnk')
+                                    else 'Installed app')
+        self._preview_image = get_icon(entry['path'], 48, entry.get('icon_path'))
+        self.preview_icon.configure(image=self._preview_image)
 
     def browse(self):
         paths = filedialog.askopenfilenames(parent=self.win, title='Choose apps or game shortcuts',

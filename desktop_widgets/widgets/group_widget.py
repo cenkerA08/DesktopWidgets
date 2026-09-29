@@ -239,7 +239,7 @@ class GroupWidget(BaseWidget):
 
             # Icon
             icon_y = ay + TILE_PAD + icon_sz // 2 + 2
-            photo  = get_icon(app["path"], icon_sz)
+            photo  = get_icon(app["path"], icon_sz, app.get('icon_path'))
             if photo:
                 self._refs.append(photo)
                 self.cv.create_image(cx, icon_y, image=photo, anchor="center")

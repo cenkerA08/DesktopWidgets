@@ -419,16 +419,21 @@ def clip(s: str, n: int) -> str:
 _CACHE: dict[tuple, object] = {}
 _CACHE_MAX = 200
 
-def get_icon(path: str, size: int) -> object | None:
+def get_icon(path: str, size: int, icon_path: str | None = None) -> object | None:
     from desktop_widgets.config import URL_APPS
-    key = (path, size)
+    key = (path, size, icon_path)
     if key not in _CACHE:
         if len(_CACHE) >= _CACHE_MAX:
             # Evict oldest quarter of entries
             evict = list(_CACHE.keys())[:_CACHE_MAX // 4]
             for k in evict:
                 del _CACHE[k]
-        _CACHE[key] = _extract(path, size)
+        if icon_path and os.path.isfile(icon_path):
+            _CACHE[key] = _image_icon(icon_path, size) or _private_icon(icon_path, size)
+        else:
+            _CACHE[key] = None
+        if _CACHE[key] is None:
+            _CACHE[key] = _extract(path, size)
     return _CACHE[key]
 
 def clear_icon_cache(path: str) -> None:
@@ -443,11 +448,18 @@ def _extract(path: str, size: int):
     if path in URL_APPS:
         ico = URL_APPS[path].get("icon_path")
         if ico and os.path.exists(ico):
-            r = _load_ico(ico, size)
+            r = _image_icon(ico, size) or _private_icon(ico, size)
+            if r: return r
+        launch = URL_APPS[path].get('launch') or ''
+        if launch.lower().startswith('shell:appsfolder\\'):
+            r = _shell_icon(launch, size)
             if r: return r
         r = _shell_icon(path, size)
         return r or _letter_tile(path, size)
     if path.lower().startswith('shell:') or path.lower().endswith(('.lnk', '.url', '.appref-ms')):
+        if path.lower().endswith('.lnk'):
+            r = _shortcut_icon(path, size)
+            if r: return r
         r = _shell_icon(path, size)
         if r: return r
     # Folders — use SHGetFileInfo to get the system folder icon
@@ -465,6 +477,34 @@ def _extract(path: str, size: int):
         r = _extracticonex(path, size)
         if r: return r
     return _letter_tile(path, size)
+
+
+def _image_icon(path: str, size: int):
+    if not PIL_OK or os.path.splitext(path)[1].lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.ico'):
+        return None
+    try:
+        with Image.open(path) as source:
+            img = source.convert('RGBA')
+            img.thumbnail((size, size), Image.Resampling.LANCZOS)
+            canvas = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+            canvas.alpha_composite(img, ((size-img.width)//2, (size-img.height)//2))
+        return ImageTk.PhotoImage(canvas)
+    except (OSError, ValueError):
+        return None
+
+
+def _shortcut_icon(path: str, size: int):
+    try:
+        import win32com.client
+        shortcut = win32com.client.Dispatch('WScript.Shell').CreateShortcut(path)
+        location = shortcut.IconLocation or ''
+        icon_file = os.path.expandvars(location.rsplit(',', 1)[0].strip('"'))
+        if os.path.isfile(icon_file):
+            return (_image_icon(icon_file, size) or _private_icon(icon_file, size)
+                    or _extracticonex(icon_file, size))
+    except Exception:
+        pass
+    return None
 
 
 def _shell_icon(path: str, size: int):

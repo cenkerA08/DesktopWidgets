@@ -307,6 +307,7 @@ class Manager:
         AppPicker(self, lambda entries: self.add_app_entries(gid, entries))
 
     def add_app_entries(self, gid, entries):
+        from desktop_widgets.services.apps import cache_store_icon
         group = next((g for g in self.data['groups'] if g['id'] == gid), None)
         if group is None:
             return
@@ -314,7 +315,7 @@ class Manager:
         for entry in entries:
             key = os.path.normcase(entry['path'])
             if key not in existing:
-                group['apps'].append(dict(entry))
+                group['apps'].append(cache_store_icon(dict(entry)))
                 existing.add(key)
         config.save(self.data)
         gw = self.wins.get(gid)
@@ -663,6 +664,7 @@ class Manager:
         m.add_command(label=f"▶  Launch {name}", command=lambda: launch_app(path))
         m.add_separator()
         m.add_command(label="✎  Rename", command=lambda: self.rename_app(path, gid))
+        m.add_command(label="◈  Change icon", command=lambda: self.change_app_icon(path, gid))
         m.add_command(label="✕  Remove", command=lambda: self.remove_app(path, gid))
         m.tk_popup(self.root.winfo_pointerx(), self.root.winfo_pointery())
 
@@ -678,6 +680,23 @@ class Manager:
             config.save(self.data)
             gw = self.wins.get(gid)
             if gw: gw.redraw()
+
+    def change_app_icon(self, path: str, gid: int) -> None:
+        group = next((g for g in self.data['groups'] if g['id'] == gid), None)
+        app = next((a for a in group['apps'] if a['path'] == path), None) if group else None
+        if app is None:
+            return
+        image = filedialog.askopenfilename(parent=self.root, title='Choose an app icon',
+                  filetypes=[('Icon or image', '*.ico *.png *.jpg *.jpeg *.webp *.exe'),
+                             ('All files', '*.*')])
+        if not image:
+            return
+        app['icon_path'] = image
+        from desktop_widgets.utils import clear_icon_cache
+        clear_icon_cache(path)
+        config.save(self.data)
+        if gid in self.wins:
+            self.wins[gid].redraw()
 
     # ── System tray ────────────────────────────────────────
 

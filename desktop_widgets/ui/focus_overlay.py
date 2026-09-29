@@ -113,7 +113,7 @@ class FocusOverlay:
                           fill=t.btn, outline='')
             for item in set(self.body.find_all())-first:
                 self.body.addtag_withtag(tag, item)
-            icon = get_icon(app['path'], 56)
+            icon = get_icon(app['path'], 56, app.get('icon_path'))
             if icon:
                 self._refs.append(icon)
                 self.body.create_image(x+tile_w/2, y+45, image=icon, tags=tag)

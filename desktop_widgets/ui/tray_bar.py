@@ -7,6 +7,7 @@ import tkinter as tk
 import math
 from typing import TYPE_CHECKING
 from desktop_widgets.utils import push_desktop
+from desktop_widgets.widgets.base_widget import _rounded_rect
 import desktop_widgets.config as config
 
 if TYPE_CHECKING:
@@ -112,8 +113,8 @@ class _GearBtn(_CanvasBtn):
 # ── TrayBar ─────────────────────────────────────────────────
 
 class TrayBar:
-    W = 80
-    H = 34
+    W = 112
+    H = 48
 
     def __init__(self, mgr: "Manager") -> None:
         self.mgr = mgr
@@ -121,24 +122,17 @@ class TrayBar:
 
         self.win = tk.Toplevel(mgr.root)
         self.win.overrideredirect(True)
-        self.win.configure(bg=t.border)   # border colour = 1px gap between halves
+        self.win.configure(bg='#010203')
+        self.win.attributes('-transparentcolor', '#010203')
         self.reposition()
-        self.win.columnconfigure(0, weight=1)
-        self.win.columnconfigure(1, weight=1)
-
-        half = self.W // 2
-
-        self._plus = _PlusBtn(
-            self.win, w=half - 1, h=self.H,
-            fg=t.txt, bg_normal=t.hdr, bg_hover=t.btn_h,
-            command=mgr.show_add_picker)
-        self._plus.grid(row=0, column=0, sticky="nsew")
-
-        self._gear = _GearBtn(
-            self.win, w=half - 1, h=self.H,
-            fg=t.txt2, bg_normal=t.hdr, bg_hover=t.btn_h,
-            command=mgr.open_settings)
-        self._gear.grid(row=0, column=1, sticky="nsew")
+        self.cv = tk.Canvas(self.win, width=self.W, height=self.H,
+                            bg='#010203', highlightthickness=0, cursor='hand2')
+        self.cv.pack(fill='both', expand=True)
+        self._hover = None
+        self.cv.bind('<Motion>', self._motion)
+        self.cv.bind('<Leave>', lambda e: self._set_hover(None))
+        self.cv.bind('<ButtonRelease-1>', self._click)
+        self.redraw()
 
         self._desktop_job = self.win.after(500, lambda: push_desktop(self.win.winfo_id()))
 
@@ -147,19 +141,36 @@ class TrayBar:
         area = area_for(self.mgr.root, 0, 0,
                         self.mgr.root.winfo_screenwidth(), self.mgr.root.winfo_screenheight())
         x, y = corner_position(area, self.W, self.H,
-                               self.mgr.data.get("tray_corner", "bottom_right"))
+                               self.mgr.data.get("tray_corner", "bottom_right"), margin=32)
         self.win.geometry(f"{self.W}x{self.H}+{x}+{y}")
 
+    def _set_hover(self, value):
+        if value != self._hover:
+            self._hover = value
+            self.redraw()
+
+    def _motion(self, event):
+        self._set_hover('add' if event.x < self.W // 2 else 'settings')
+
+    def _click(self, event):
+        if event.x < self.W // 2:
+            self.mgr.show_add_picker()
+        else:
+            self.mgr.open_settings()
+
     def redraw(self) -> None:
-        self.reposition()
         t = config.get_theme(self.mgr.data)
-        self.win.configure(bg=t.border)
-        self._plus.bg_normal = t.hdr;  self._plus.bg_hover = t.btn_h
-        self._plus.fg = t.txt
-        self._plus.configure(bg=t.hdr)
-        self._gear.bg_normal = t.hdr;  self._gear.bg_hover = t.btn_h
-        self._gear.fg = t.txt2
-        self._gear.configure(bg=t.hdr)
+        self.cv.delete('all')
+        _rounded_rect(self.cv, 1, 1, self.W-1, self.H-1, 20,
+                      fill=t.hdr, outline=t.border, width=1)
+        if self._hover:
+            x1, x2 = (5, self.W//2-2) if self._hover == 'add' else (self.W//2+2, self.W-5)
+            _rounded_rect(self.cv, x1, 5, x2, self.H-5, 15, fill=t.btn_h)
+        self.cv.create_line(self.W//2, 12, self.W//2, self.H-12, fill=t.border)
+        self.cv.create_oval(14, 9, 44, 39, fill=t.accent, outline='')
+        accent = t.bg if t.accent != t.bg else t.txt
+        _draw_plus(self.cv, 29, 24, 13, 2.5, accent)
+        _draw_gear(self.cv, 83, 24, 9, 6.2, 8, t.txt)
 
     def destroy(self) -> None:
         try: self.win.after_cancel(self._desktop_job)

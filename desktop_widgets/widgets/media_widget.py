@@ -36,7 +36,7 @@ W_FIXED  = 360     # fixed widget width
 SCALE    = 3       # PIL render scale for antialiasing
 
 # Computed fixed height — must match _render_media layout exactly
-_BODY_H  = 280
+_BODY_H  = 328
 FIXED_H  = HDR_H + _BODY_H
 
 
@@ -182,9 +182,9 @@ def _best_font(text: str, preferred_name: str, size: int):
 
 def _layout(w):
     """Body coordinates shared by rendering, seeking and playback hit targets."""
-    return {"progress": (22, 164, w-22, 169), "controls_y": 232,
-            "controls": {"prev": (w//2-72, 22),
-                         "play_pause": (w//2, 28), "next": (w//2+72, 22)}}
+    return {"progress": (24, 209, w-24, 215), "controls_y": 282,
+            "controls": {"prev": (w//2-76, 23),
+                         "play_pause": (w//2, 30), "next": (w//2+76, 23)}}
 
 
 def _time_label(seconds):
@@ -210,9 +210,21 @@ def _render_media(w: int, h: int, tr: "_Track", t,
         d.text((int(x*S), int(y*S)), value, fill=color, font=font, anchor=anchor)
 
     active = bool(tr.title) and available
-    # Quiet inset surface gives the artwork and metadata a single visual group.
-    d.rounded_rectangle(box((18, 16, w-18, 146)), radius=18*S, fill=t.btn)
-    art_size = 104
+    # A softly blurred colour wash ties the card to the current album artwork.
+    hero = box((16, 16, w-16, 188))
+    if tr.art_img is not None and active:
+        backdrop = ImageOps.fit(tr.art_img.convert('RGBA'),
+                                ((w-32)*S, 172*S), method=Image.Resampling.LANCZOS)
+        backdrop = backdrop.filter(ImageFilter.GaussianBlur(20*S))
+        backdrop = Image.blend(backdrop, Image.new('RGBA', backdrop.size, t.btn), 0.76)
+        hero_mask = Image.new('L', backdrop.size)
+        ImageDraw.Draw(hero_mask).rounded_rectangle((0, 0, backdrop.width-1,
+            backdrop.height-1), radius=18*S, fill=255)
+        img.paste(backdrop, (16*S, 16*S), hero_mask)
+    else:
+        d.rounded_rectangle(hero, radius=18*S, fill=t.btn)
+        d.ellipse(box((w-110, -34, w+24, 100)), fill=t.hov)
+    art_size = 128
     if tr.art_img is not None and active:
         art = ImageOps.fit(tr.art_img.convert("RGBA"), (art_size*S, art_size*S),
                            method=Image.Resampling.LANCZOS)
@@ -220,12 +232,14 @@ def _render_media(w: int, h: int, tr: "_Track", t,
         art = Image.new("RGBA", (art_size*S, art_size*S), t.hov)
         icon = widget_icon('media', t.accent, size=42*S)
         art.alpha_composite(icon, ((art_size*S-icon.width)//2, (art_size*S-icon.height)//2))
+    d.rounded_rectangle(box((30, 34, 30+art_size, 34+art_size)),
+                        radius=16*S, fill=t.border)
     mask = Image.new("L", art.size)
-    ImageDraw.Draw(mask).rounded_rectangle((0,0,art.width-1,art.height-1), radius=13*S, fill=255)
-    img.paste(art, (30*S, 29*S), mask)
+    ImageDraw.Draw(mask).rounded_rectangle((0,0,art.width-1,art.height-1), radius=15*S, fill=255)
+    img.paste(art, (28*S, 30*S), mask)
 
-    tx, tw = 150, w-180
-    text(tx, 30, (tr.source or 'NOW PLAYING') if active else 'YOUR SOUNDTRACK',
+    tx, tw = 174, w-194
+    text(tx, 38, (tr.source or 'NOW PLAYING') if active else 'YOUR SOUNDTRACK',
          9, t.accent, bold=True, max_width=tw)
     title = tr.title if active else ('Ready when you are' if available else 'Media unavailable')
     title_font = _best_font(title, 'segoeuib.ttf', 16*S)
@@ -233,19 +247,23 @@ def _render_media(w: int, h: int, tr: "_Track", t,
     for i, line in enumerate(lines[:2]):
         if i == 1 and len(lines) > 2:
             line += '…'
-        text(tx, 51+i*21, line, 16, t.txt, bold=True, max_width=tw)
+        text(tx, 64+i*24, line, 17, t.txt, bold=True, max_width=tw)
     artist = tr.artist or tr.album or 'Unknown artist'
     if not active:
         artist = 'Play something in your music app.' if available else 'Media integration could not start.'
     if active:
-        artist_y = 51 + 21*min(2, len(lines)) + 10
+        artist_y = 73 + 24*min(2, len(lines)) + 10
         text(tx, artist_y, artist, 11, t.txt2, max_width=tw)
         if tr.album and tr.album != tr.title and tr.album != artist:
             text(tx, artist_y+19, tr.album, 9, t.txt2, max_width=tw)
     else:
         font = _best_font(artist, 'segoeui.ttf', 10*S)
         for i, line in enumerate(_wrap(artist, font, tw*S)[:2]):
-            text(tx, 101+i*15, line, 10, t.txt2, max_width=tw)
+            text(tx, 122+i*15, line, 10, t.txt2, max_width=tw)
+
+    d.rounded_rectangle(hero, radius=18*S, outline=t.border, width=S)
+    text(24, 194, 'PROGRESS', 8, t.txt2, bold=True)
+    d.line(((24*S, 252*S), ((w-24)*S, 252*S)), fill=t.border, width=S)
 
     layout = _layout(w)
     cy = layout['controls_y']
@@ -254,7 +272,9 @@ def _render_media(w: int, h: int, tr: "_Track", t,
     for command, (cx, radius) in layout['controls'].items():
         primary = command == 'play_pause'
         fill = t.accent if primary and active else t.hov if hover == command and active else t.btn
-        d.ellipse(box((cx-radius, cy-radius, cx+radius, cy+radius)), fill=fill)
+        d.ellipse(box((cx-radius, cy-radius, cx+radius, cy+radius)),
+                  fill=fill, outline=t.accent if hover == command and active else t.border,
+                  width=S if not primary else 2*S)
         color = on_accent if primary and active else t.txt if active else t.txt2
         if command == 'play_pause':
             if tr.playing and active:

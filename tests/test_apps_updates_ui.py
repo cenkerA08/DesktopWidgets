@@ -7,7 +7,7 @@ from concurrent.futures import Future
 from unittest.mock import Mock, patch
 
 from desktop_widgets import config
-from desktop_widgets.services.apps import app_entry
+from desktop_widgets.services.apps import app_entry, cache_store_icon
 from desktop_widgets.services import updater
 from desktop_widgets.utils import launch_app
 from desktop_widgets.ui.update_screen import UpdateScreen
@@ -17,6 +17,32 @@ from desktop_widgets.widgets.group_widget import GroupWidget
 
 
 class AppTests(unittest.TestCase):
+    def test_legacy_store_url_uses_app_icon(self):
+        from desktop_widgets import utils
+        path = r'C:\Apps\Photos.url'
+        launch = r'shell:AppsFolder\Microsoft.Windows.Photos_8wekyb3d8bbwe!App'
+        marker = object()
+        with patch.dict(config.URL_APPS, {path: {'launch': launch, 'icon_path': None}}), \
+             patch.object(utils, '_shell_icon', return_value=marker) as shell:
+            self.assertIs(utils._extract(path, 52), marker)
+        shell.assert_called_once_with(launch, 52)
+
+    def test_store_icon_is_saved_for_new_entries(self):
+        from PIL import Image, ImageTk
+        with tempfile.TemporaryDirectory() as tmp:
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                photo = ImageTk.PhotoImage(Image.new('RGBA', (64, 64), '#aaccff'))
+                entry = {'name': 'Photos', 'path': r'shell:AppsFolder\Example!App'}
+                with patch.object(config, 'DATA_DIR', tmp), \
+                     patch('desktop_widgets.utils._shell_icon', return_value=photo):
+                    saved = cache_store_icon(entry)
+                self.assertTrue(Path(saved['icon_path']).is_file())
+                self.assertEqual(saved['path'], entry['path'])
+            finally:
+                root.destroy()
+
     def test_game_and_store_shortcuts_are_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
             for filename in ('Call of Duty.lnk', 'Xbox.lnk', 'Steam game.url', 'Game.EXE'):
@@ -169,11 +195,11 @@ class NewUiTests(unittest.TestCase):
         with patch('desktop_widgets.services.screens.area_for', return_value=(0, 0, 2560, 1392)):
             bar = TrayBar(self.mgr)
             self.root.update_idletasks()
-            self.assertEqual(bar.win.geometry(), '80x34+2464+1342')
+            self.assertEqual(bar.win.geometry(), '112x48+2416+1312')
             self.mgr.data['tray_corner'] = 'top_left'
             bar.reposition()
             self.root.update_idletasks()
-            self.assertEqual(bar.win.geometry(), '80x34+16+16')
+            self.assertEqual(bar.win.geometry(), '112x48+32+32')
             bar.destroy()
 
     def test_large_folder_stays_in_work_area_and_scrolls_to_last_app(self):

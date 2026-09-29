@@ -59,8 +59,10 @@ or **Browse files** to select executables and shortcuts. Game `.lnk` and `.url`
 shortcuts retain their launch arguments and launcher behavior; dropped shortcuts
 are kept in their original location. For games such as Call of Duty, use the
 shortcut created by Steam, Battle.net or Xbox if the game's executable requires
-its launcher. Existing entries imported as raw executables can be removed and
-added again using the original shortcut.
+its launcher. The picker prefers Start menu shortcuts so game icons are retained.
+Right-click an app tile and choose **Change icon** to select an `.ico`, `.png`,
+`.jpg`, `.webp`, or executable icon. Existing entries imported as raw executables
+can be removed and added again using the original shortcut.
 
 Focus view uses a stable rounded card: previous/next buttons or arrow keys switch
 folders. The mouse wheel switches folders when all items fit; for larger folders

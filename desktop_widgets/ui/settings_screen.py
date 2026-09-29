@@ -320,6 +320,7 @@ class SettingsScreen:
     def _tab_appearance(self, t):
         p = self._scroll_inner
         from desktop_widgets.services.screens import CORNERS
+        from desktop_widgets.ui.components import OptionButton
         self._section(p, t, '+ and settings position')
         corners = tk.Frame(p, bg=t.bg)
         corners.pack(fill='x', padx=20, pady=(4, 12))
@@ -329,9 +330,11 @@ class SettingsScreen:
                 config.save(self.mgr.data)
                 self.mgr.tray_bar.reposition()
                 self._rebuild()
-            _btn(corners, CORNERS[key], choose, t,
-                 accent=self.mgr.data.get('tray_corner', 'bottom_right') == key,
-                 width=155).grid(row=i//2, column=i%2, padx=4, pady=4, sticky='w')
+            detail = {'top_left': 'Near the upper edge', 'top_right': 'Near the upper edge',
+                      'bottom_left': 'Above the taskbar', 'bottom_right': 'Above the taskbar'}[key]
+            OptionButton(corners, CORNERS[key], detail, choose, t,
+                         selected=self.mgr.data.get('tray_corner', 'bottom_right') == key
+                         ).grid(row=i//2, column=i%2, padx=4, pady=4, sticky='w')
         PAD = 20
 
         self._section(p, t, "Workspace themes")
@@ -349,9 +352,9 @@ class SettingsScreen:
             self.mgr.apply_theme()
             self._rebuild()
         for label, value in (("Square", 0), ("Soft", 10), ("Rounded", 16), ("Extra round", 24)):
-            _btn(corner_row, label, lambda v=value: set_corners(v), t,
-                 accent=config.get_corner_radius(self.mgr.data) == value,
-                 padx=12, pady=7).pack(side="left", padx=(0, 6))
+            OptionButton(corner_row, label, 'Corner style', lambda v=value: set_corners(v), t,
+                         selected=config.get_corner_radius(self.mgr.data) == value,
+                         width=142).pack(side="left", padx=(0, 6))
 
         self._section(p, t, "Icon Size")
         icon_frame = tk.Frame(p, bg=t.bg)
@@ -359,8 +362,9 @@ class SettingsScreen:
         cur_icon = self.mgr.data.get("icon_size", 52)
         for label, val in [("Small", 36), ("Medium", 52), ("Large", 68)]:
             is_sel = cur_icon == val
-            _btn(icon_frame, label, lambda v=val: self._set_icon_size(v), t,
-                 accent=is_sel, padx=16, pady=6).pack(side="left", padx=4)
+            OptionButton(icon_frame, label, f'{val} px icons',
+                         lambda v=val: self._set_icon_size(v), t,
+                         selected=is_sel, width=164).pack(side="left", padx=4)
 
         self._section(p, t, "Cell Size")
         cell_frame = tk.Frame(p, bg=t.bg)
@@ -368,19 +372,20 @@ class SettingsScreen:
         cur_cell = self.mgr.data.get("cell_size", "normal")
         for label, val in [("Compact", "compact"), ("Normal", "normal"), ("Spacious", "spacious")]:
             is_sel = cur_cell == val
-            _btn(cell_frame, label, lambda v=val: self._set_cell_size(v), t,
-                 accent=is_sel, padx=16, pady=6).pack(side="left", padx=4)
+            OptionButton(cell_frame, label, 'App tile spacing',
+                         lambda v=val: self._set_cell_size(v), t,
+                         selected=is_sel, width=164).pack(side="left", padx=4)
 
         self._section(p, t, "UI Font")
         font_frame = tk.Frame(p, bg=t.bg)
         font_frame.pack(fill="x", padx=PAD, pady=(4, 12))
         cur_font = self.mgr.data.get("ui_font", "Segoe UI")
-        for f in ["Segoe UI", "Calibri", "Arial", "Verdana", "Tahoma",
-                  "Consolas", "Courier New", "Lucida Console"]:
+        for i, f in enumerate(["Segoe UI", "Calibri", "Arial", "Verdana", "Tahoma",
+                               "Consolas", "Courier New", "Lucida Console"]):
             is_sel = cur_font == f
             _btn(font_frame, f, lambda v=f: self._set_ui_font(v), t,
-                 accent=is_sel, font=(f, 9), padx=12, pady=5
-                 ).pack(side="left", padx=4, pady=2)
+                 accent=is_sel, font=(f, 9), width=140, height=38
+                 ).grid(row=i//4, column=i%4, padx=4, pady=4, sticky='w')
 
         self._section(p, t, "Widget Resize")
         resize_frame = tk.Frame(p, bg=t.bg)

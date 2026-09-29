@@ -45,7 +45,7 @@ def paint_shell(cv, width, height, theme, title, close, eyebrow='YOUR WORKSPACE'
 
 class RoundedButton(tk.Canvas):
     def __init__(self, parent, text, command, theme, accent=False, **kw):
-        font = kw.pop('font', ('Segoe UI', 10))
+        font = kw.pop('font', ('Segoe UI', 10, 'bold'))
         padx, pady = kw.pop('padx', 14), kw.pop('pady', 8)
         width = kw.pop('width', tkfont.Font(font=font).measure(text)+2*padx)
         height = kw.pop('height', tkfont.Font(font=font).metrics('linespace')+2*pady)
@@ -55,8 +55,14 @@ class RoundedButton(tk.Canvas):
                          bg=parent.cget('bg'), highlightthickness=0, cursor='hand2', takefocus=True)
         def draw(hover=False):
             self.delete('all')
-            _rounded_rect(self, 1, 1, width-1, height-1, min(12, height//2),
-                          fill=theme.hov if hover and not accent else bg)
+            fill = theme.btn_h if hover and not accent else bg
+            _rounded_rect(self, 1, 1, width-1, height-1, min(13, height//2),
+                          fill=fill, outline=theme.accent if accent else theme.border,
+                          width=2 if accent else 1)
+            if accent:
+                _rounded_rect(self, 5, 7, 8, height-7, 2, fill=fg)
+            elif hover:
+                _rounded_rect(self, 5, 7, 8, height-7, 2, fill=theme.accent)
             self.create_text(width/2, height/2, text=text, font=font, fill=fg)
         draw()
         self.bind('<Enter>', lambda e: draw(True))
@@ -73,6 +79,34 @@ class RoundedButton(tk.Canvas):
             fg = theme.bg if selected else theme.txt
             draw()
         self.set_selected = select
+
+
+class OptionButton(tk.Canvas):
+    """Two-line choice card with a clear selected state."""
+    def __init__(self, parent, title, detail, command, theme, selected=False,
+                 width=246, height=70):
+        super().__init__(parent, width=width, height=height, bg=parent.cget('bg'),
+                         highlightthickness=0, cursor='hand2', takefocus=True)
+        def draw(hover=False):
+            self.delete('all')
+            _rounded_rect(self, 1, 1, width-1, height-1, 14,
+                          fill=theme.hov if hover else theme.btn,
+                          outline=theme.accent if selected else theme.border,
+                          width=2 if selected else 1)
+            if selected:
+                _rounded_rect(self, 8, 13, 12, height-13, 2, fill=theme.accent)
+                self.create_text(width-20, 22, text='✓', fill=theme.accent,
+                                 font=('Segoe UI', 12, 'bold'))
+            self.create_text(24, 24, text=title, anchor='w', fill=theme.txt,
+                             font=('Segoe UI', 10, 'bold'))
+            self.create_text(24, 49, text=detail, anchor='w', fill=theme.txt2,
+                             font=('Segoe UI', 9), width=width-50)
+        draw()
+        self.bind('<Enter>', lambda e: draw(True))
+        self.bind('<Leave>', lambda e: draw())
+        self.bind('<ButtonRelease-1>', lambda e: command())
+        self.bind('<Return>', lambda e: command())
+        self.bind('<space>', lambda e: command())
 
 
 def theme_picker(parent, theme, current, on_select, bg=None):
