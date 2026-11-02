@@ -2,7 +2,7 @@
 import tkinter as tk
 import tkinter.font as tkfont
 from desktop_widgets.widgets.base_widget import _rounded_rect
-from desktop_widgets.ui.drawing import recolor_shape
+from desktop_widgets.ui.drawing import recolor_shape, shell_image
 from desktop_widgets.theme import PRESETS
 
 
@@ -28,8 +28,11 @@ def release_notes_view(parent, body, theme):
     return frame
 
 
-def paint_shell(cv, width, height, theme, title, close, eyebrow='YOUR WORKSPACE'):
-    _rounded_rect(cv, 1, 1, width-1, height-1, 24, fill=theme.bg, outline=theme.border, hard=True)
+def paint_shell(cv, width, height, theme, title, close, eyebrow='YOUR WORKSPACE', glows=None):
+    if glows:
+        shell_image(cv, width, height, 24, theme.bg, theme.border, glows)
+    else:
+        _rounded_rect(cv, 1, 1, width-1, height-1, 24, fill=theme.bg, outline=theme.border, hard=True)
     _rounded_rect(cv, 26, 27, 34, 35, 4, fill=theme.accent)
     cv.create_text(44, 31, text=eyebrow, anchor='w', fill=theme.txt2,
                    font=('Segoe UI', 9, 'bold'))
@@ -65,9 +68,11 @@ class RoundedButton(tk.Canvas):
             _rounded_rect(self, 1, 1, width-1, height-1, min(13, height//2),
                           fill=fill, outline=theme.accent if accent else theme.border,
                           width=2 if accent else 1)
-            if accent:
+            # The side marker is for wide buttons (navigation); on small pills
+            # it collides with the label.
+            if width >= 110 and accent:
                 _rounded_rect(self, 5, 7, 8, height-7, 2, fill=fg)
-            elif hover:
+            elif width >= 110 and hover:
                 _rounded_rect(self, 5, 7, 8, height-7, 2, fill=theme.accent)
             self.create_text(width/2, height/2, text=text, font=font, fill=fg)
         draw()

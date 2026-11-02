@@ -109,10 +109,9 @@ class BaseWidget:
 
         # Card and header band as one image whose outside is exactly the
         # transparent key colour, so the corners stay clean on any wallpaper.
-        card(self.cv, 1, 1, self.W - 2, self.H - 2, r, t.bg, t.border, t.hdr, HDR_H - 1)
+        card(self.cv, 1, 1, self.W - 2, self.H - 2, r, t.bg, t.border, t.hdr, HDR_H - 1,
+             glow=None if self._collapsed else self._glow())
 
-        if not self._collapsed:
-            self.cv.create_line(16, HDR_H, self.W-16, HDR_H, fill=t.border, width=1)
 
         # Collapse button
         self.cv.create_rectangle(0, 0, HDR_H, HDR_H,
@@ -155,11 +154,14 @@ class BaseWidget:
             title = title[:-1]
             self.cv.itemconfigure(item, text=title.rstrip() + "…")
 
-    def paint_panel(self, x1: int, y1: int, x2: int, y2: int, fill: str | None = None):
-        """Inset rounded panel, the same treatment as the media artwork card."""
+    def paint_panel(self, x1: int, y1: int, x2: int, y2: int, fill: str | None = None,
+                    glow: str | None = None):
+        """Inset rounded panel, the same treatment as the media artwork card;
+        glow adds the shared corner light inside it (like the stats hero)."""
+        from desktop_widgets.ui.drawing import panel_image
         t = self._theme()
-        return _rounded_rect(self.cv, x1, y1, x2, y2, R_PANEL,
-                             fill=fill or t.btn, outline=t.border, width=1)
+        photo = panel_image(self.cv, x2 - x1, y2 - y1, R_PANEL, fill or t.btn, t.border, t.bg, glow)
+        return self.cv.create_image(x1, y1, image=photo, anchor="nw")
 
     def paint_empty(self, kind: str, title: str, hint: str) -> None:
         """Empty state: an inset panel with the widget's icon and a short hint."""
@@ -228,6 +230,10 @@ class BaseWidget:
     def _draw(self) -> None:
         """Override in subclass to draw widget body."""
         pass
+
+    def _glow(self) -> str | None:
+        """Colour of the soft corner light; widgets pick their own (or None)."""
+        return self._theme().accent
 
     def _theme(self):
         """Override to support per-widget theme overrides."""

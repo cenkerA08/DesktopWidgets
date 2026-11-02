@@ -39,6 +39,14 @@ class Manager:
         self.data = config.load()
         import desktop_widgets.theme as _theme
         _theme.apply_sizes(self.data)   # saved icon / tile size settings
+        from desktop_widgets.services.apps import repair_missing_shortcuts
+        if repair_missing_shortcuts(self.data):     # game shortcuts deleted from the desktop
+            for group in self.data["groups"]:
+                for app in group["apps"]:
+                    if app.get("launch"):
+                        config.URL_APPS[app["path"]] = {"launch": app["launch"],
+                                                        "icon_path": app.get("icon_path")}
+            config.save(self.data)
         self.wins:         dict[int, GroupWidget]  = {}
         self.focus:        FocusOverlay | None     = None
         self.statsplus_win: StatsPlusWidget | None = None
@@ -86,6 +94,8 @@ class Manager:
         from desktop_widgets.services.screens import work_areas
         self._screen_areas = work_areas(self.root)
         self.root.after(2000, self._check_screens)
+        from desktop_widgets.ui.focus_overlay import prewarm
+        self.root.after(4000, lambda: prewarm(self))   # focus view tiles, while idle
 
     def _check_screens(self):
         """Recover widgets after a display is removed or its work area changes."""
@@ -319,6 +329,9 @@ class Manager:
             key = os.path.normcase(entry['path'])
             if key not in existing:
                 group['apps'].append(cache_store_icon(dict(entry)))
+                if entry.get('launch'):
+                    config.URL_APPS[entry['path']] = {'launch': entry['launch'],
+                                                      'icon_path': entry.get('icon_path')}
                 existing.add(key)
         config.save(self.data)
         gw = self.wins.get(gid)

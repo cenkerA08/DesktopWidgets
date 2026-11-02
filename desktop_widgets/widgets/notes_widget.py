@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import tkinter as tk
-from desktop_widgets.theme import HDR_H, INSET
+from desktop_widgets.theme import HDR_H, INSET, TYPE
 from desktop_widgets.widgets.base_widget import BaseWidget
 import desktop_widgets.config as config
 
@@ -46,14 +46,20 @@ class NotesWidget(BaseWidget):
             self._remove_text_widget()
             return
         self.paint_panel(INSET, HDR_H + INSET, self.W - INSET, self.H - INSET)
+        # Small capitalised label with a dot, like the stats and media cards.
+        lx, ly = INSET + 16, HDR_H + INSET + 16
+        self.cv.create_oval(lx, ly - 3, lx + 6, ly + 3, fill=t.accent, outline="")
+        self.cv.create_text(lx + 12, ly, text="YOUR NOTES", font=TYPE["meta"],
+                            fill=t.txt2, anchor="w")
         self._ensure_text_widget(t)
 
     def _ensure_text_widget(self, t) -> None:
         SB_W = 4
         PAD  = INSET + 12            # text sits inside the inset panel
-        tx = PAD; ty = HDR_H + PAD
-        tw = self.W - PAD * 2 - SB_W - 4
-        th = self.H - HDR_H - PAD * 2
+        LABEL = 22                   # room for the "YOUR NOTES" label
+        tx = PAD - 4; ty = HDR_H + PAD + LABEL
+        tw = self.W - PAD * 2 - SB_W
+        th = self.H - HDR_H - PAD * 2 - LABEL
         SB_X = self.W - PAD - SB_W + 6
 
         if self._text_widget is None:

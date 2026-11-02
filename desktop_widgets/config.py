@@ -173,6 +173,13 @@ def load() -> dict:
             return d
         except Exception as e:
             print(f"[config] load error: {e}")
+            # Starting fresh would save over the user's folders on the next
+            # save; keep the unreadable file so it can be recovered.
+            try:
+                import shutil, time
+                shutil.copy2(DATA_FILE, f"{DATA_FILE}.unreadable-{time.strftime('%Y%m%d-%H%M%S')}")
+            except OSError:
+                pass
     return _default()
 
 

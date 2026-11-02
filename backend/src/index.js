@@ -1,8 +1,13 @@
+import { DASHBOARD_HTML } from "./dashboard.js";
+import { MAP_PATHS, MAP_VIEWBOX } from "./worldmap.js";
+
 // DesktopWidgets usage + feedback API (Cloudflare Worker, D1 database "DB").
 //
 //   POST /ping      {install_id, version, os}              -> 204
 //   POST /feedback  {install_id, version, rating, text}    -> 204
 //   GET  /stats     Authorization: Bearer <ADMIN_TOKEN>    -> JSON summary
+//   GET  /dashboard the stats page (asks for the admin token in the browser)
+//   GET  /map.json  country outlines for the dashboard map
 //
 // The visitor's country comes from request.cf.country. The IP address is
 // never read or stored.
@@ -17,6 +22,19 @@ export default {
       if (request.method === "POST" && url.pathname === "/ping") return await ping(request, env);
       if (request.method === "POST" && url.pathname === "/feedback") return await feedback(request, env);
       if (request.method === "GET" && url.pathname === "/stats") return await stats(request, env);
+      if (request.method === "GET" && url.pathname === "/map.json") {
+        // Country outlines for the dashboard map (public shape data, no user data).
+        return Response.json({ viewBox: MAP_VIEWBOX, paths: MAP_PATHS },
+                             { headers: { "Cache-Control": "public, max-age=86400" } });
+      }
+      if (request.method === "GET" && (url.pathname === "/dashboard" || url.pathname === "/")) {
+        return new Response(DASHBOARD_HTML, { headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          // The page only talks to this Worker; nothing else may load or frame it.
+          "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
+          "Referrer-Policy": "no-referrer",
+        } });
+      }
       return new Response("Not found", { status: 404 });
     } catch (err) {
       return new Response("Bad request", { status: 400 });

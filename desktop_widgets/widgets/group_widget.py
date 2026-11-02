@@ -12,7 +12,7 @@ import desktop_widgets.theme as _th
 from desktop_widgets.widgets.base_widget import BaseWidget
 from desktop_widgets.utils import get_icon, clear_icon_cache, clip, launch_app, ask_string, ask_confirm, resolve_lnk, resolve_url, allow_dnd_from_explorer, setup_wmdrop
 import desktop_widgets.config as config
-from desktop_widgets.ui.tiles import tile_photo, fit_label
+from desktop_widgets.ui.tiles import tile_photo, fit_label, icon_color
 
 if TYPE_CHECKING:
     from desktop_widgets.manager import Manager
@@ -187,7 +187,8 @@ class GroupWidget(BaseWidget):
 
             if PIL_OK:
                 photo = tile_photo(self.cv, app, t, tile_w, tile_h, icon_sz,
-                                   TILE_PAD + 1 + icon_sz // 2, state, TILE_R)
+                                   TILE_PAD + 1 + icon_sz // 2, state, TILE_R,
+                                   tint=icon_color(app, t.accent), transparent=True)
                 self._refs.append(photo)
                 self.cv.create_image(ax + TILE_GAP//2, ay + TILE_GAP//2,
                                      image=photo, anchor="nw")

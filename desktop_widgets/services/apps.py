@@ -17,7 +17,87 @@ def app_entry(path, name=None):
     if not shell_app and (not os.path.isfile(path) or
                          os.path.splitext(path)[1].lower() not in ('.exe', '.lnk', '.url', '.appref-ms')):
         raise ValueError('Choose an executable or app shortcut (.exe, .lnk, .url, .appref-ms).')
-    return {'name': name or os.path.splitext(os.path.basename(path))[0], 'path': path}
+    entry = {'name': name or os.path.splitext(os.path.basename(path))[0], 'path': path}
+    if path.lower().endswith('.url'):
+        entry.update(_url_details(path))
+    return entry
+
+
+def _url_details(path):
+    """Keep a .url shortcut's launch link and icon, so the entry still works
+    after the shortcut file is moved or deleted (desktop clean-ups)."""
+    details = {}
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                key, _, value = line.strip().partition('=')
+                if key.upper() == 'URL' and value and not value.lower().startswith('http'):
+                    details['launch'] = value
+                elif key.upper() == 'ICONFILE':
+                    icon = os.path.expandvars(value.strip('"').rsplit(',', 1)[0])
+                    if os.path.isfile(icon):
+                        details['icon_path'] = icon
+    except OSError:
+        pass
+    return details
+
+
+def _plain(name):
+    return ''.join(ch for ch in str(name).casefold() if ch.isalnum())
+
+
+def steam_games():
+    """{normalised game name: appid} for installed Steam games."""
+    import re
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam') as key:
+            steam = winreg.QueryValueEx(key, 'SteamPath')[0]
+    except OSError:
+        return {}
+    libraries = [steam]
+    vdf = os.path.join(steam, 'steamapps', 'libraryfolders.vdf')
+    try:
+        with open(vdf, encoding='utf-8', errors='ignore') as f:
+            # .vdf escapes backslashes: "D:\\Games\\Steam"
+            libraries += [m.replace('\\\\', '\\') for m in re.findall(r'"path"\s+"([^"]+)"', f.read())]
+    except OSError:
+        pass
+    games = {}
+    for library in libraries:
+        folder = os.path.join(library, 'steamapps')
+        try:
+            names = [n for n in os.listdir(folder) if n.startswith('appmanifest_') and n.endswith('.acf')]
+        except OSError:
+            continue
+        for manifest in names:
+            try:
+                with open(os.path.join(folder, manifest), encoding='utf-8', errors='ignore') as f:
+                    text = f.read()
+            except OSError:
+                continue
+            appid, name = re.search(r'"appid"\s+"(\d+)"', text), re.search(r'"name"\s+"([^"]+)"', text)
+            if appid and name:
+                games[_plain(name.group(1))] = appid.group(1)
+    return games
+
+
+def repair_missing_shortcuts(data):
+    """Give .url entries whose shortcut file is gone their Steam launch link back.
+    Returns True when something was repaired."""
+    broken = [app for group in data.get('groups', []) for app in group.get('apps', [])
+              if app.get('path', '').lower().endswith('.url') and not app.get('launch')
+              and not os.path.exists(app['path'])]
+    if not broken:
+        return False
+    games = steam_games()
+    fixed = False
+    for app in broken:
+        appid = games.get(_plain(app.get('name', '')))
+        if appid:
+            app['launch'] = f'steam://rungameid/{appid}'
+            fixed = True
+    return fixed
 
 
 def installed_apps():

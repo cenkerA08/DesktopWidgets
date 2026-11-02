@@ -14,7 +14,7 @@ from desktop_widgets.theme import HDR_H, CHROMA
 import desktop_widgets.theme as _th
 from desktop_widgets.widgets.base_widget import BaseWidget
 from desktop_widgets.utils import clip, ask_string, ask_confirm
-from desktop_widgets.ui.drawing import rounded_rect
+from desktop_widgets.ui.tiles import tile_photo, fit_label, icon_color
 from desktop_widgets.theme import R_TILE
 import desktop_widgets.config as config
 
@@ -33,30 +33,6 @@ try:
 except ImportError:
     PIL_OK = False
 
-# ── File-type colours & icons ──────────────────────────────
-_EXT_COLOR = {
-    ".pdf":  "#e05c5c",
-    ".docx": "#5b7cf8", ".doc": "#5b7cf8",
-    ".xlsx": "#3dbf7f", ".xls": "#3dbf7f", ".csv": "#3dbf7f",
-    ".pptx": "#e0a050", ".ppt": "#e0a050",
-    ".txt":  "#9098aa", ".md":  "#9098aa",
-    ".zip":  "#c8855a", ".rar": "#c8855a", ".7z": "#c8855a",
-    ".mp4":  "#a06cf8", ".mkv": "#a06cf8", ".avi": "#a06cf8",
-    ".mp3":  "#2ecfcf", ".wav": "#2ecfcf",
-    ".png":  "#e06090", ".jpg": "#e06090", ".jpeg": "#e06090",
-}
-_EXT_LABEL = {
-    ".pdf":  "PDF",
-    ".docx": "DOC", ".doc": "DOC",
-    ".xlsx": "XLS", ".xls": "XLS", ".csv": "CSV",
-    ".pptx": "PPT", ".ppt": "PPT",
-    ".txt":  "TXT", ".md":  "MD",
-    ".zip":  "ZIP", ".rar": "RAR", ".7z":  "7Z",
-    ".mp4":  "MP4", ".mkv": "MKV", ".avi": "AVI",
-    ".mp3":  "MP3", ".wav": "WAV",
-    ".png":  "IMG", ".jpg": "IMG", ".jpeg": "IMG",
-}
-
 # Same grid as app folders so the two widgets line up side by side.
 CELL_W  = _th.CELL_W
 CELL_H  = _th.CELL_H
@@ -64,38 +40,6 @@ ICON_SZ = 44
 PAD     = _th.PAD
 MIN_COLS = 1
 MAX_COLS = 8
-
-_ICON_CACHE: dict[tuple, object] = {}
-_SHELL_CACHE: dict[tuple, object] = {}
-
-
-def _shell_file_icon(path: str, size: int):
-    """The icon Explorer shows for this file (Word, PDF reader, editor...)."""
-    key = (path, size)
-    if key not in _SHELL_CACHE:
-        from desktop_widgets.utils import _shell_icon
-        _SHELL_CACHE[key] = _shell_icon(path, size) if os.path.exists(path) else None
-    return _SHELL_CACHE[key]
-
-
-def _file_tile(path: str, size: int):
-    """Render a coloured rounded square with the file extension label."""
-    if not PIL_OK:
-        return None
-    key = (path, size)
-    if key in _ICON_CACHE:
-        return _ICON_CACHE[key]
-    ext  = os.path.splitext(path)[1].lower()
-    col  = _EXT_COLOR.get(ext, "#5b7cf8")
-    lbl  = _EXT_LABEL.get(ext, ext.lstrip(".").upper()[:4] or "?")
-    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d    = ImageDraw.Draw(img)
-    r    = max(6, size // 5)
-    d.rounded_rectangle([0, 0, size-1, size-1], radius=r, fill=col)
-    d.text((size//2, size//2), lbl, fill="white", anchor="mm")
-    photo = ImageTk.PhotoImage(img)
-    _ICON_CACHE[key] = photo
-    return photo
 
 
 class DocsWidget(BaseWidget):
@@ -196,19 +140,19 @@ class DocsWidget(BaseWidget):
             cx  = ax + CELL_W // 2
 
             hov = i == self._hov
-            rounded_rect(self.cv, ax+2, ay+2, ax+CELL_W-2, ay+CELL_H-2, R_TILE,
-                         fill=t.hov if hov else t.btn,
-                         outline=t.accent if hov else "", width=2 if hov else 1)
+            # Same tiles as the app folders and the focus view.
+            tile_w, tile_h = CELL_W - 4, CELL_H - 4
+            icon_sz = min(_th.ICON_SZ, tile_h - 32)
+            photo = tile_photo(self.cv, f, t, tile_w, tile_h, icon_sz, 7 + icon_sz // 2,
+                               "hover" if hov else "idle", R_TILE,
+                               tint=icon_color(f, t.accent), transparent=True)
+            self._refs.append(photo)
+            self.cv.create_image(ax + 2, ay + 2, image=photo, anchor="nw")
 
-            photo = _shell_file_icon(f["path"], ICON_SZ) or _file_tile(f["path"], ICON_SZ)
-            if photo:
-                self._refs.append(photo)
-                self.cv.create_image(cx, ay + 6 + ICON_SZ // 2 + 4,
-                    image=photo, anchor="center")
-
-            self.cv.create_text(cx, ay + CELL_H - 14,
-                text=clip(f["name"], 10), font=_th.TYPE["caption"],
-                fill=t.txt if hov else t.txt2, anchor="center", width=CELL_W - 8)
+            label_font = _th.TYPE["caption"]
+            self.cv.create_text(cx, ay + CELL_H - 15,
+                text=fit_label(self.cv, f["name"], label_font, tile_w - 12),
+                font=label_font, fill=t.txt if hov else t.txt3, anchor="center")
 
             bid = self._blk["id"]
             self._spots.append({

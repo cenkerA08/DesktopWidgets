@@ -10,13 +10,14 @@ from typing import TYPE_CHECKING
 import tkinter as tk
 from desktop_widgets.theme import HDR_H
 from desktop_widgets.widgets.base_widget import BaseWidget
+from desktop_widgets.ui.tiles import _mix
 import desktop_widgets.config as config
 
 if TYPE_CHECKING:
     from desktop_widgets.manager import Manager
 
 try:
-    from PIL import Image, ImageTk, ImageDraw, ImageFilter, ImageFont
+    from PIL import Image, ImageChops, ImageTk, ImageDraw, ImageFilter, ImageFont
     PIL_OK = True
 except ImportError:
     PIL_OK = False
@@ -36,7 +37,7 @@ W_FIXED  = 360     # fixed widget width
 SCALE    = 3       # PIL render scale for antialiasing
 
 # Computed fixed height — must match _render_media layout exactly
-_BODY_H  = 328
+_BODY_H  = 344
 FIXED_H  = HDR_H + _BODY_H
 
 
@@ -182,7 +183,8 @@ def _best_font(text: str, preferred_name: str, size: int):
 
 def _layout(w):
     """Body coordinates shared by rendering, seeking and playback hit targets."""
-    return {"progress": (24, 209, w-24, 215), "controls_y": 282,
+    return {"progress": (32, 228, w-32, 234), "controls_y": 292,
+            "panel": (16, 198, w-16, 332),
             "controls": {"prev": (w//2-76, 23),
                          "play_pause": (w//2, 30), "next": (w//2+76, 23)}}
 
@@ -191,6 +193,24 @@ def _time_label(seconds):
     seconds = max(0, int(seconds))
     minutes, seconds = divmod(seconds, 60)
     return f"{minutes}:{seconds:02d}"
+
+
+_backdrop_cache: dict = {}
+
+
+def _backdrop(art, size, tint, S):
+    """Blurred, tinted album art for the hero card (cached: the blur is slow,
+    and the artwork only changes when the song does)."""
+    from PIL import ImageOps
+    key = (id(art), size, tint)
+    if key not in _backdrop_cache:
+        w, h = size
+        small = ImageOps.fit(art.convert('RGBA'), (w//2, h//2), method=Image.Resampling.BILINEAR)
+        small = small.filter(ImageFilter.GaussianBlur(10))
+        small = Image.blend(small, Image.new('RGBA', small.size, tint), 0.76)
+        _backdrop_cache.clear()
+        _backdrop_cache[key] = small.resize((w*S, h*S), Image.Resampling.BILINEAR)
+    return _backdrop_cache[key]
 
 
 def _render_media(w: int, h: int, tr: "_Track", t,
@@ -213,17 +233,22 @@ def _render_media(w: int, h: int, tr: "_Track", t,
     # A softly blurred colour wash ties the card to the current album artwork.
     hero = box((16, 16, w-16, 188))
     if tr.art_img is not None and active:
-        backdrop = ImageOps.fit(tr.art_img.convert('RGBA'),
-                                ((w-32)*S, 172*S), method=Image.Resampling.LANCZOS)
-        backdrop = backdrop.filter(ImageFilter.GaussianBlur(20*S))
-        backdrop = Image.blend(backdrop, Image.new('RGBA', backdrop.size, t.btn), 0.76)
+        backdrop = _backdrop(tr.art_img, (w-32, 172), t.btn, S)
         hero_mask = Image.new('L', backdrop.size)
         ImageDraw.Draw(hero_mask).rounded_rectangle((0, 0, backdrop.width-1,
             backdrop.height-1), radius=18*S, fill=255)
         img.paste(backdrop, (16*S, 16*S), hero_mask)
     else:
         d.rounded_rectangle(hero, radius=18*S, fill=t.btn)
-        d.ellipse(box((w-110, -34, w+24, 100)), fill=t.hov)
+        # The same soft corner light the other widgets use.
+        from desktop_widgets.ui.drawing import corner_glow
+        hw, hh = w-32, 172
+        light = corner_glow(hw, hh, t.accent, strength=55).resize((hw*S, hh*S), Image.Resampling.BILINEAR)
+        hero_mask = Image.new('L', (hw*S, hh*S))
+        ImageDraw.Draw(hero_mask).rounded_rectangle((S, S, hw*S-S-1, hh*S-S-1), radius=18*S, fill=255)
+        light.putalpha(ImageChops.multiply(light.getchannel('A'), hero_mask))
+        img.alpha_composite(light, (16*S, 16*S))
+        d = ImageDraw.Draw(img)
     art_size = 128
     if tr.art_img is not None and active:
         art = ImageOps.fit(tr.art_img.convert("RGBA"), (art_size*S, art_size*S),
@@ -239,8 +264,9 @@ def _render_media(w: int, h: int, tr: "_Track", t,
     img.paste(art, (28*S, 30*S), mask)
 
     tx, tw = 174, w-194
-    text(tx, 38, (tr.source or 'NOW PLAYING') if active else 'YOUR SOUNDTRACK',
-         9, t.accent, bold=True, max_width=tw)
+    d.ellipse(box((tx, 41, tx+6, 47)), fill=t.accent)
+    text(tx+12, 38, ((tr.source or 'Now playing') if active else 'Your soundtrack').upper(),
+         8, t.txt2, bold=True, max_width=tw-12)
     title = tr.title if active else ('Ready when you are' if available else 'Media unavailable')
     title_font = _best_font(title, 'segoeuib.ttf', 16*S)
     lines = _wrap(title, title_font, tw*S)
@@ -262,8 +288,11 @@ def _render_media(w: int, h: int, tr: "_Track", t,
             text(tx, 122+i*15, line, 10, t.txt2, max_width=tw)
 
     d.rounded_rectangle(hero, radius=18*S, outline=t.border, width=S)
-    text(24, 194, 'PROGRESS', 8, t.txt2, bold=True)
-    d.line(((24*S, 252*S), ((w-24)*S, 252*S)), fill=t.border, width=S)
+    layout = _layout(w)
+    d.rounded_rectangle(box(layout['panel']), radius=16*S, fill=t.btn, outline=t.border, width=S)
+    px, py = layout['panel'][0] + 16, layout['panel'][1] + 13
+    d.ellipse(box((px, py+3, px+6, py+9)), fill=t.accent)
+    text(px+12, py, 'PROGRESS', 8, t.txt2, bold=True)
 
     layout = _layout(w)
     cy = layout['controls_y']
@@ -271,7 +300,8 @@ def _render_media(w: int, h: int, tr: "_Track", t,
     on_accent = '#10141d' if (ar*299+ag*587+ab*114)/1000 > 160 else '#ffffff'
     for command, (cx, radius) in layout['controls'].items():
         primary = command == 'play_pause'
-        fill = t.accent if primary and active else t.hov if hover == command and active else t.btn
+        control = '#%02x%02x%02x' % _mix(t.btn, t.txt, 0.07)   # one step lighter than the panel
+        fill = t.accent if primary and active else t.hov if hover == command and active else control
         d.ellipse(box((cx-radius, cy-radius, cx+radius, cy+radius)),
                   fill=fill, outline=t.accent if hover == command and active else t.border,
                   width=S if not primary else 2*S)
@@ -483,7 +513,8 @@ class MediaWidget(BaseWidget):
         y2 += HDR_H
         self.cv.delete('prog_tick')
         before = set(self.cv.find_all())
-        rounded_rect(self.cv, x1, y1, x2, y2, 3, fill=t.btn_h)
+        track = '#%02x%02x%02x' % _mix(t.btn, t.accent, 0.18)   # same bars as System stats
+        rounded_rect(self.cv, x1, y1, x2, y2, 3, fill=track)
         with self._lock:
             tr = self._track
         known = bool(tr.title) and tr.duration > 0
@@ -527,6 +558,9 @@ class MediaWidget(BaseWidget):
         threading.Thread(target=_t, daemon=True).start()
 
     # ── Theme ──────────────────────────────────────────────
+
+    def _glow(self):
+        return None   # the body draws its own album-art wash
 
     def _theme(self):
         return config.get_theme(self.mgr.data,

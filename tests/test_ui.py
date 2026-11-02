@@ -79,6 +79,21 @@ class WidgetUiTests(unittest.TestCase):
         self.assertIsNone(focus._hovered_button)
         focus.close()
 
+    def test_focus_shelf_selects_previews_and_opens(self):
+        group = self.data['groups'][0]
+        group['apps'] = [{'name': 'One', 'path': r'C:\a.exe'}, {'name': 'Two', 'path': r'C:\b.exe'}]
+        with patch('desktop_widgets.ui.tiles.icon_image',
+                   side_effect=lambda app, size, accent: __import__('PIL.Image').Image.new('RGBA', (size, size), '#3366cc')):
+            focus = FocusOverlay(self.mgr, group)
+            focus._step(1)                    # Right arrow
+            self.assertEqual(focus._selected, 1)
+            focus._preview(0)                 # hovering shows another app in the hero
+            self.assertEqual(focus._previewed, 0)
+            focus._preview(None)
+            with patch('desktop_widgets.ui.focus_overlay.launch_app') as launch:
+                focus._open_selected()        # Enter / Play opens the selected app
+        launch.assert_called_once_with(r'C:\b.exe')
+
     def test_focus_navigation_reuses_windows_and_closes_during_animation(self):
         focus = FocusOverlay(self.mgr, self.data['groups'][0])
         original_windows = tuple(self.root.winfo_children())

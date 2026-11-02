@@ -37,6 +37,13 @@ Until that is set, the app sends nothing and never shows the feedback card.
 
 ## Seeing your numbers
 
+Open **https://desktopwidgets-api.cenker-dw.workers.dev/dashboard** in any
+browser (phone too). It asks for your `ADMIN_TOKEN` once and keeps it in that
+browser only; "Forget token" removes it. It shows total installs, active users
+(7 and 30 days), users per country, versions, ratings and the latest feedback.
+The page itself contains no data; everything is loaded from `/stats` with the
+token.
+
 Everything at once (users per country, active users, versions, ratings, the
 latest 50 comments):
 

@@ -4,9 +4,10 @@ from tkinter import filedialog
 from concurrent.futures import ThreadPoolExecutor
 
 from desktop_widgets.services.apps import app_entry, installed_apps
-from desktop_widgets.utils import get_icon, clip
+from desktop_widgets.utils import clip
 from desktop_widgets.ui.components import RoundedButton, paint_shell
-from desktop_widgets.ui.drawing import rounded_rect, recolor_shape
+from desktop_widgets.ui.tiles import tile_photo, icon_image, icon_color, fit_label
+from desktop_widgets.ui.drawing import rounded_rect
 from desktop_widgets.theme import CHROMA, TYPE, R_TILE
 from desktop_widgets import config
 
@@ -56,7 +57,8 @@ class AppPicker:
         self.selected = {}            # path -> entry, in click order
         self.tab = 'all'
         self._icons, self._icon_queue, self._icon_job = {}, [], None
-        self._tiles = {}              # index -> background shape id
+        self._tiles = {}              # index -> (tile image item, label item)
+        self._shown = {}              # index -> PhotoImage currently displayed
         self.t = t = config.get_theme(mgr.data)
 
         from desktop_widgets.services.screens import area_for
@@ -79,7 +81,8 @@ class AppPicker:
         self.shell = cv = tk.Canvas(self.win, bg=CHROMA, highlightthickness=0)
         cv.pack(fill='both', expand=True)
         eyebrow = f'ADD TO {group_name.upper()}' if group_name else 'ADD TO YOUR DESKTOP'
-        paint_shell(cv, width, height, t, 'Apps and games', self.close, eyebrow)
+        paint_shell(cv, width, height, t, 'Apps and games', self.close, eyebrow,
+                    glows=[(t.accent, 0.15), (t.up_col, 0.9)])
         self._drag_window(cv)
 
         # Search field: a rounded canvas pill with a borderless Entry inside.
@@ -241,41 +244,53 @@ class AppPicker:
             self._draw_tile(i)
         self._queue_visible_icons()
 
+    def _state(self, i, hover=False):
+        chosen = self.visible[i]['path'] in self.selected
+        return ('selected_hover' if hover else 'selected') if chosen else ('hover' if hover else 'idle')
+
     def _draw_tile(self, i, hover=False):
+        """Same tiles as the folders and focus view; placeholder until the icon loads."""
         g, t, entry = self.grid, self.t, self.visible[i]
         tag = f'tile{i}'
         g.delete(tag)
         x, y = self._tile_xy(i)
-        chosen = entry['path'] in self.selected
-        fill = t.hov if hover or chosen else t.btn
         before = set(g.find_all())
-        shape = rounded_rect(g, x, y, x+TILE_W, y+TILE_H, R_TILE, fill=fill,
-                             outline=t.accent if chosen else t.border, width=2 if chosen else 1)
-        self._tiles[i] = shape
-        icon = self._icons.get(entry['path'])
-        if icon:
-            g.create_image(x+TILE_W//2, y+14+ICON//2, image=icon)
+        if entry['path'] in self._icons:
+            photo = tile_photo(g, entry, t, TILE_W, TILE_H, ICON, 14 + ICON//2,
+                               self._state(i, hover), R_TILE, tint=icon_color(entry, t.accent))
+            image = g.create_image(x, y, image=photo, anchor='nw')
+            self._shown[i] = photo
         else:
+            image = rounded_rect(g, x, y, x+TILE_W, y+TILE_H, R_TILE, fill=t.btn, outline=t.border)
             rounded_rect(g, x+(TILE_W-ICON)//2, y+14, x+(TILE_W+ICON)//2, y+14+ICON, 10, fill=t.btn_h)
-        g.create_text(x+TILE_W//2, y+62, text=clip(entry['name'], 24), fill=t.txt,
-                      font=TYPE['caption'], width=TILE_W-12, justify='center', anchor='n')
-        if chosen:
-            cx, cy = x+TILE_W-14, y+14
+        label = g.create_text(x+TILE_W//2, y+66,
+                              text=fit_label(g, entry['name'], TYPE['caption'], TILE_W-14),
+                              fill=t.txt if hover else t.txt3, font=TYPE['caption'], anchor='n')
+        if entry['path'] in self.selected:
+            cx, cy = x+TILE_W-15, y+15
             g.create_oval(cx-9, cy-9, cx+9, cy+9, fill=t.accent, outline='')
-            g.create_text(cx, cy, text='✓', fill=t.bg, font=TYPE['meta'])
+            g.create_text(cx, cy, text='\u2713', fill=t.bg, font=TYPE['meta'])
         for item in set(g.find_all()) - before:
             g.addtag_withtag(tag, item)
+        self._tiles[i] = (image, label)
         g.tag_bind(tag, '<Enter>', lambda e: self._hover(i, True))
         g.tag_bind(tag, '<Leave>', lambda e: self._hover(i, False))
         g.tag_bind(tag, '<Button-1>', lambda e: self.toggle(i))
         g.tag_bind(tag, '<Double-Button-1>', lambda e: self.add_one(i))
 
     def _hover(self, i, on):
+        """Swap the tile image in place (never recreate items from <Enter>/<Leave>)."""
         if i not in self._tiles or i >= len(self.visible):
             return
         self.grid.config(cursor='hand2' if on else '')
-        if self.visible[i]['path'] not in self.selected:
-            recolor_shape(self.grid, self._tiles[i], self.t.hov if on else self.t.btn)
+        entry = self.visible[i]
+        image, label = self._tiles[i]
+        self.grid.itemconfigure(label, fill=self.t.txt if on else self.t.txt3)
+        if entry['path'] in self._icons:
+            photo = tile_photo(self.grid, entry, self.t, TILE_W, TILE_H, ICON, 14 + ICON//2,
+                               self._state(i, on), R_TILE, tint=icon_color(entry, self.t.accent))
+            self._shown[i] = photo
+            self.grid.itemconfigure(image, image=photo)
 
     def _wheel(self, event):
         if self.visible:
@@ -307,7 +322,8 @@ class AppPicker:
             if i >= len(self.visible):
                 continue
             entry = self.visible[i]
-            self._icons[entry['path']] = get_icon(entry['path'], ICON, entry.get('icon_path'))
+            icon_image(entry, ICON * 2, self.t.accent)      # warm the shared icon cache
+            self._icons[entry['path']] = True
             self._draw_tile(i)
         self._icon_job = self.root.after(10, self._load_icons)
 

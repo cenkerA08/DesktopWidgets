@@ -26,6 +26,40 @@ class AppTests(unittest.TestCase):
         self.assertEqual(entry['path'], str(shortcut))
         self.assertNotIn('/', entry['path'])
 
+    def test_url_shortcut_keeps_launch_link_and_icon(self):
+        # Entries must keep working after the .url file is deleted from the desktop.
+        with tempfile.TemporaryDirectory() as tmp:
+            icon = Path(tmp) / 'game.ico'
+            icon.write_bytes(b'')
+            shortcut = Path(tmp) / 'Game.url'
+            shortcut.write_text(f'[InternetShortcut]\nURL=steam://rungameid/42\nIconFile={icon}\n',
+                                encoding='utf-8')
+            entry = app_entry(str(shortcut))
+        self.assertEqual(entry['launch'], 'steam://rungameid/42')
+        self.assertEqual(entry['icon_path'], str(icon))
+
+    def test_deleted_steam_shortcuts_are_repaired_by_name(self):
+        from desktop_widgets.services import apps
+        data = {'groups': [{'apps': [
+            {'name': 'Middle-earth\ufffd Shadow of War\ufffd', 'path': r'C:\gone\Middle-earth.url'},
+            {'name': 'Unknown Game', 'path': r'C:\gone\Unknown.url'}]}]}
+        with patch.object(apps, 'steam_games', return_value={'middleearthshadowofwar': '356190'}):
+            self.assertTrue(apps.repair_missing_shortcuts(data))
+        fixed, unknown = data['groups'][0]['apps']
+        self.assertEqual(fixed['launch'], 'steam://rungameid/356190')
+        self.assertNotIn('launch', unknown)
+
+    def test_unreadable_settings_are_backed_up_not_lost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_file = Path(tmp) / 'data.json'
+            data_file.write_text('{"groups": [ broken', encoding='utf-8')
+            with patch.object(config, 'DATA_FILE', str(data_file)):
+                loaded = config.load()
+            backups = list(Path(tmp).glob('data.json.unreadable-*'))
+            self.assertEqual(loaded['groups'][0]['name'], 'Programs')   # fresh defaults
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(encoding='utf-8'), '{"groups": [ broken')
+
     def test_saved_forward_slash_paths_are_migrated(self):
         data = {'groups': [{'apps': [{'name': 'Game', 'path': 'C:/Games/Game.lnk'}]}]}
         migrated = config._migrate(data)
