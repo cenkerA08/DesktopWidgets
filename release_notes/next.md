@@ -1,4 +1,4 @@
-# DesktopWidget 1.0.50
+# DesktopWidget 1.0.51
 ## Updated UI
 - The ui has received some updates
 - bigger buttons

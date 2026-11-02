@@ -393,6 +393,19 @@ def github_release(version: str, zip_path: Path) -> None:
     print(f"https://github.com/{repo}/releases/tag/{tag}")
 
 
+def _refuse_published_version(version: str) -> None:
+    """Stop before building if GitHub already has this version published
+    (e.g. version.py was not committed after an earlier release)."""
+    import requests
+    response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/v{version}",
+                            headers={"Authorization": f"token {os.environ['GITHUB_TOKEN']}",
+                                     "Accept": "application/vnd.github+json"}, timeout=(8, 30))
+    if response.status_code == 200 and not response.json().get("draft"):
+        raise ValueError(f"v{version} is already published on GitHub. Set VERSION in "
+                         f"desktop_widgets/version.py to {version} and retarget "
+                         f"{DRAFT_NOTES.name} to the next version.")
+
+
 def release(part: str = "patch") -> None:
     old_version = VERSION
     new_version = bump_semver(old_version, part)
@@ -410,6 +423,7 @@ def release(part: str = "patch") -> None:
         raise RuntimeError("Set GITHUB_TOKEN in your environment before releasing.")
     if (NOTES_DIR / f'{new_version}.md').exists():
         raise ValueError(f"Release {new_version} already has archived notes. Prepare a new version.")
+    _refuse_published_version(new_version)
     print(f"Bumping version {old_version} -> {new_version}")
     write_version(new_version)
     try:
