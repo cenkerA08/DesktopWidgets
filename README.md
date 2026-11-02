@@ -2,6 +2,17 @@
 
 DesktopWidgets is a lightweight Windows desktop utility built with Python and Tkinter. It provides desktop widgets for app folders, files, notes, media, and system stats while staying directly runnable from source during development.
 
+## Installing
+
+Download `DesktopWidget_vX.Y.Z.zip` from the latest
+[release](https://github.com/cenkerA08/DesktopWidgets/releases/latest), unzip it and
+run `DesktopWidget.exe`.
+
+The app is not code-signed yet, so on first launch Windows may show
+**"Windows protected your PC"**. Click **More info → Run anyway**. This only
+happens for the first download; updates installed from inside the app do not show
+it. On PCs with Smart App Control turned on, unsigned apps cannot be started at all.
+
 ## Requirements
 
 - Windows 10 or newer is recommended.
