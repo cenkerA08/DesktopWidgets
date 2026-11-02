@@ -46,3 +46,7 @@ $RECYCLE.BIN/
 # Never commit tokens or keys
 .env
 secrets.py
+
+# Cloudflare backend
+backend/.wrangler/
+backend/node_modules/

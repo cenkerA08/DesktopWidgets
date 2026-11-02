@@ -445,7 +445,7 @@ class SettingsScreen:
 
         # Stats+
         if self.mgr.statsplus_win:
-            self._section(p, t, "Stats+")
+            self._section(p, t, "System stats")
             self._statsplus_row(p, t, sw, sh)
 
         # Notes
@@ -543,7 +543,7 @@ class SettingsScreen:
         frame.pack(fill="x", padx=20, pady=3)
         tk.Label(frame, text="📊", font=("Segoe UI", 13),
                  bg=t.hov, fg=t.txt).pack(side="left", padx=(12,4), pady=8)
-        tk.Label(frame, text="Stats+", font=("Segoe UI", 10, "bold"),
+        tk.Label(frame, text="System stats", font=("Segoe UI", 10, "bold"),
                  bg=t.hov, fg=t.txt).pack(side="left", pady=8)
         ctrl = tk.Frame(frame, bg=t.hov)
         ctrl.pack(side="right", padx=12, pady=6)
@@ -674,6 +674,23 @@ class SettingsScreen:
         tk.Label(p, text=f"Saved to:  {config.DATA_FILE}",
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(
                  anchor="w", padx=PAD, pady=(4,0))
+        self._section(p, t, "Privacy")
+        from desktop_widgets.services import telemetry
+        tele = telemetry.state(self.mgr.data)
+        tk.Label(p, text="Once a day DesktopWidgets can send an anonymous ping: a random install ID, "
+                         "the app version and your Windows version. Your country is worked out by the "
+                         "server; your IP address is not stored. Nothing else is collected.",
+                 font=("Segoe UI", 8), bg=t.bg, fg=t.txt2,
+                 wraplength=460, justify="left").pack(anchor="w", padx=PAD, pady=(4, 8))
+        privacy = tk.Frame(p, bg=t.bg)
+        privacy.pack(anchor="w", padx=PAD)
+        def set_stats(enabled):
+            tele["enabled"] = enabled
+            config.save(self.mgr.data)
+            for child in privacy.winfo_children(): child.destroy()
+            _btn(privacy, "Stop sending usage stats" if enabled else "Send anonymous usage stats",
+                 lambda: set_stats(not enabled), t, accent=not enabled).pack(side="left")
+        set_stats(tele["enabled"])
         self._section(p, t, "Updates")
         tk.Label(p, text="Updates are checked at startup. You choose whether to download, install, and restart.",
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2,

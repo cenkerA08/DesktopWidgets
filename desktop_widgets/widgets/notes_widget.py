@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import tkinter as tk
-from desktop_widgets.theme import HDR_H
+from desktop_widgets.theme import HDR_H, INSET
 from desktop_widgets.widgets.base_widget import BaseWidget
 import desktop_widgets.config as config
 
@@ -41,20 +41,20 @@ class NotesWidget(BaseWidget):
 
     def _draw(self) -> None:
         t = self._theme()
-        self.cv.create_text(self.W // 2, HDR_H // 2,
-            text="Notes", font=("Segoe UI", 9, "bold"),
-            fill=t.txt2, anchor="center")
+        self.paint_header("Notes", meta="Autosaved")
         if self._collapsed:
             self._remove_text_widget()
             return
+        self.paint_panel(INSET, HDR_H + INSET, self.W - INSET, self.H - INSET)
         self._ensure_text_widget(t)
 
     def _ensure_text_widget(self, t) -> None:
-        SB_W = 6
-        PAD  = 16
+        SB_W = 4
+        PAD  = INSET + 12            # text sits inside the inset panel
         tx = PAD; ty = HDR_H + PAD
-        tw = self.W - PAD * 2 - SB_W - 2
+        tw = self.W - PAD * 2 - SB_W - 4
         th = self.H - HDR_H - PAD * 2
+        SB_X = self.W - PAD - SB_W + 6
 
         if self._text_widget is None:
             blk = self.mgr.data.get("notes", {})
@@ -63,19 +63,19 @@ class NotesWidget(BaseWidget):
             txt = tk.Text(
                 self.win,
                 font=(ui_font, 10),
-                bg=t.bg, fg=t.txt,
+                bg=t.btn, fg=t.txt,
                 insertbackground=t.txt,
-                selectbackground=t.accent,
-                relief="flat", bd=0,
+                selectbackground=t.accent, selectforeground=t.bg,
+                relief="flat", bd=0, spacing1=2, spacing3=2,
                 wrap="word", undo=True,
                 highlightthickness=0,
                 padx=4, pady=4,
             )
 
             # Canvas scrollbar — fully themed, no system widget
-            sb_cv = tk.Canvas(self.win, width=SB_W, bg=t.hdr,
+            sb_cv = tk.Canvas(self.win, width=SB_W, bg=t.btn,
                               highlightthickness=0)
-            sb_cv.place(x=self.W - SB_W - PAD + PAD, y=ty,
+            sb_cv.place(x=SB_X, y=ty,
                         width=SB_W, height=th)
 
             def _update_sb(*_):
@@ -89,7 +89,7 @@ class NotesWidget(BaseWidget):
                 h = sb_cv.winfo_height()
                 if h <= 1: return
                 sb_cv.create_rectangle(
-                    1, int(top * h), SB_W - 1, int(bot * h),
+                    0, int(top * h), SB_W, int(bot * h),
                     fill=t.border, outline="", tags="thumb")
 
             txt.configure(yscrollcommand=lambda *a: (_update_sb(),))
@@ -128,15 +128,14 @@ class NotesWidget(BaseWidget):
 
         else:
             # Reposition on resize
-            SB_X = self.W - SB_W - PAD + PAD
             self._text_widget.place(x=tx, y=ty, width=tw, height=th)
             if self._scrollbar:
                 self._scrollbar.place(x=SB_X, y=ty, width=SB_W, height=th)
-                self._scrollbar.configure(bg=t.hdr)
+                self._scrollbar.configure(bg=t.btn)
             # Restyle text
             ui_font = self.mgr.data.get("ui_font", "Segoe UI")
             self._text_widget.configure(
-                bg=t.bg, fg=t.txt,
+                bg=t.btn, fg=t.txt, selectforeground=t.bg,
                 insertbackground=t.txt,
                 selectbackground=t.accent,
                 font=(ui_font, 10),

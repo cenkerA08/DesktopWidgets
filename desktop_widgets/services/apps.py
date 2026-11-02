@@ -3,8 +3,16 @@ import os
 import hashlib
 
 
+def normalize_path(path):
+    """Explorer drops arrive as C:/x/y; Shell icon APIs only accept C:\\x\\y."""
+    path = os.path.expandvars(str(path).strip().strip('{}').strip('"'))
+    if not path or path.lower().startswith('shell:'):
+        return path
+    return os.path.normpath(path)
+
+
 def app_entry(path, name=None):
-    path = os.path.expandvars(str(path).strip().strip('"'))
+    path = normalize_path(path)
     shell_app = path.lower().startswith('shell:appsfolder\\')
     if not shell_app and (not os.path.isfile(path) or
                          os.path.splitext(path)[1].lower() not in ('.exe', '.lnk', '.url', '.appref-ms')):

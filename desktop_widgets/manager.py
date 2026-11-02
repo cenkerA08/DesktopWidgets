@@ -304,7 +304,8 @@ class Manager:
 
     def add_app(self, gid: int) -> None:
         from desktop_widgets.ui.app_picker import AppPicker
-        AppPicker(self, lambda entries: self.add_app_entries(gid, entries))
+        group = next((g for g in self.data['groups'] if g['id'] == gid), {})
+        AppPicker(self, lambda entries: self.add_app_entries(gid, entries), group.get('name'))
 
     def add_app_entries(self, gid, entries):
         from desktop_widgets.services.apps import cache_store_icon

@@ -14,6 +14,8 @@ from desktop_widgets.theme import HDR_H, CHROMA
 import desktop_widgets.theme as _th
 from desktop_widgets.widgets.base_widget import BaseWidget
 from desktop_widgets.utils import clip, ask_string, ask_confirm
+from desktop_widgets.ui.drawing import rounded_rect
+from desktop_widgets.theme import R_TILE
 import desktop_widgets.config as config
 
 if TYPE_CHECKING:
@@ -55,14 +57,25 @@ _EXT_LABEL = {
     ".png":  "IMG", ".jpg": "IMG", ".jpeg": "IMG",
 }
 
-CELL_W = 88
-CELL_H = 90
-ICON_SZ = 48
-PAD    = 10
+# Same grid as app folders so the two widgets line up side by side.
+CELL_W  = _th.CELL_W
+CELL_H  = _th.CELL_H
+ICON_SZ = 44
+PAD     = _th.PAD
 MIN_COLS = 1
 MAX_COLS = 8
 
 _ICON_CACHE: dict[tuple, object] = {}
+_SHELL_CACHE: dict[tuple, object] = {}
+
+
+def _shell_file_icon(path: str, size: int):
+    """The icon Explorer shows for this file (Word, PDF reader, editor...)."""
+    key = (path, size)
+    if key not in _SHELL_CACHE:
+        from desktop_widgets.utils import _shell_icon
+        _SHELL_CACHE[key] = _shell_icon(path, size) if os.path.exists(path) else None
+    return _SHELL_CACHE[key]
 
 
 def _file_tile(path: str, size: int):
@@ -158,16 +171,10 @@ class DocsWidget(BaseWidget):
         files = self._blk.get("files", [])
         ww, wh = self.W, self.H
 
-        # Header title + add button
-        self.cv.create_text(ww // 2, HDR_H // 2,
-            text=self._blk.get("name", "Files"),
-            font=("Segoe UI", 11, "bold"), fill=t.txt, anchor="center")
-
-        self.cv.create_rectangle(ww - HDR_H, 0, ww, HDR_H,
-            fill="", outline="", tags="add_btn")
-        self.cv.create_text(ww - HDR_H // 2, HDR_H // 2, text="+",
-            font=("Segoe UI", 14, "bold"), fill=t.txt2, anchor="center",
-            tags="add_btn")
+        count = len(files)
+        self.paint_header(self._blk.get("name", "Files"),
+                          meta=f"{count} file{'s' if count != 1 else ''}" if count else "",
+                          action=True)
         self._spots.append({
             "x1": ww - HDR_H, "y1": 0, "x2": ww, "y2": HDR_H,
             "click": self._add_file,
@@ -177,10 +184,8 @@ class DocsWidget(BaseWidget):
             return
 
         if not files:
-            hint = "Drop files here" if DND_OK else "Click + to add files"
-            self.cv.create_text(ww // 2, HDR_H + (wh - HDR_H) // 2,
-                text=hint, font=("Segoe UI", 9),
-                fill=t.txt2, anchor="center", justify="center")
+            self.paint_empty("docs", "No files yet",
+                             "Press + or drop files here" if DND_OK else "Press + to add files")
             return
 
         cols = max(1, min(self.cols, (self.W - 2*PAD) // CELL_W))
@@ -190,19 +195,20 @@ class DocsWidget(BaseWidget):
             ax  = PAD + col * CELL_W; ay = HDR_H + PAD + row * CELL_H
             cx  = ax + CELL_W // 2
 
-            if i == self._hov:
-                self.cv.create_rectangle(ax+2, ay+2, ax+CELL_W-2, ay+CELL_H-2,
-                    fill=t.btn_h, outline=t.accent, width=1)
+            hov = i == self._hov
+            rounded_rect(self.cv, ax+2, ay+2, ax+CELL_W-2, ay+CELL_H-2, R_TILE,
+                         fill=t.hov if hov else t.btn,
+                         outline=t.accent if hov else "", width=2 if hov else 1)
 
-            photo = _file_tile(f["path"], ICON_SZ)
+            photo = _shell_file_icon(f["path"], ICON_SZ) or _file_tile(f["path"], ICON_SZ)
             if photo:
                 self._refs.append(photo)
-                self.cv.create_image(cx, ay + ICON_SZ // 2 + 4,
+                self.cv.create_image(cx, ay + 6 + ICON_SZ // 2 + 4,
                     image=photo, anchor="center")
 
-            self.cv.create_text(cx, ay + ICON_SZ + 12,
-                text=clip(f["name"], 10), font=("Segoe UI", 8),
-                fill=t.txt3, anchor="n", width=CELL_W - 4)
+            self.cv.create_text(cx, ay + CELL_H - 14,
+                text=clip(f["name"], 10), font=_th.TYPE["caption"],
+                fill=t.txt if hov else t.txt2, anchor="center", width=CELL_W - 8)
 
             bid = self._blk["id"]
             self._spots.append({
@@ -368,8 +374,9 @@ class DocsWidget(BaseWidget):
             paths = [event.data]
         existing = {f["path"] for f in self._blk.setdefault("files", [])}
         added = 0
+        from desktop_widgets.services.apps import normalize_path
         for path in paths:
-            path = path.strip("{}").strip()
+            path = normalize_path(path)
             if not path or not os.path.isfile(path):
                 continue
             if path in existing:

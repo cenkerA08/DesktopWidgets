@@ -17,6 +17,20 @@ from desktop_widgets.widgets.group_widget import GroupWidget
 
 
 class AppTests(unittest.TestCase):
+    def test_explorer_drop_paths_use_backslashes(self):
+        # tkinterdnd2 hands over C:/x/y; Shell icon lookup fails on that form.
+        with tempfile.TemporaryDirectory() as tmp:
+            shortcut = Path(tmp) / 'Game.lnk'
+            shortcut.write_bytes(b'')
+            entry = app_entry('{' + str(shortcut).replace('\\', '/') + '}')
+        self.assertEqual(entry['path'], str(shortcut))
+        self.assertNotIn('/', entry['path'])
+
+    def test_saved_forward_slash_paths_are_migrated(self):
+        data = {'groups': [{'apps': [{'name': 'Game', 'path': 'C:/Games/Game.lnk'}]}]}
+        migrated = config._migrate(data)
+        self.assertEqual(migrated['groups'][0]['apps'][0]['path'], r'C:\Games\Game.lnk')
+
     def test_legacy_store_url_uses_app_icon(self):
         from desktop_widgets import utils
         path = r'C:\Apps\Photos.url'

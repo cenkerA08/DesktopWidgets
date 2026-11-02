@@ -26,7 +26,7 @@ class AddWidgetScreen:
         cv.pack(fill='both', expand=True)
         paint_shell(cv, width, height, t, 'Make room for more', self.close, 'ADD A WIDGET')
         choices = [('App Folder', 'Your everyday essentials', 'folder', mgr.new_group_dialog),
-                   ('Stats+', 'Your system at a glance', 'statsplus', mgr.toggle_statsplus),
+                   ('System stats', 'Your system at a glance', 'statsplus', mgr.toggle_statsplus),
                    ('Notes', 'A space for your ideas', 'notes', mgr.toggle_notes),
                    ('Files', 'Keep useful files close', 'docs', mgr.new_docs_dialog),
                    ('Media', 'Now playing, within reach', 'media', mgr.toggle_media)]

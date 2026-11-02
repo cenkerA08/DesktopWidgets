@@ -82,6 +82,19 @@ def _migrate(d: dict) -> dict:
         if d.get("theme_preset", "Dark Blue") == "Dark Blue":
             d["theme"] = Theme().to_dict()
             d["theme_preset"] = "Graphite"
+    # Apps dropped from Explorer were saved with forward slashes, which
+    # broke their icons. Normalise them once on load.
+    from desktop_widgets.services.apps import normalize_path
+    for g in d.get("groups", []):
+        for app in g.get("apps", []):
+            for key in ("path", "icon_path"):
+                if app.get(key):
+                    app[key] = normalize_path(app[key])
+    for dw in d.get("docs_widgets", []):
+        for f in dw.get("files", []):
+            if f.get("path"):
+                f["path"] = normalize_path(f["path"])
+
     # v1 → v2: add collapsed, theme_override to groups
     for g in d.get("groups", []):
         g.setdefault("collapsed", False)

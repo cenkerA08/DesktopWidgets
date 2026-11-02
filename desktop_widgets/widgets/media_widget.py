@@ -537,16 +537,14 @@ class MediaWidget(BaseWidget):
         t = self._theme()
         self._ctrl_hitboxes = {}
         self._prog_hitbox = (0,0,0,0)
-        self.cv.create_text(HDR_H+4, HDR_H//2, text='Now playing',
-                            font=('Segoe UI', 10, 'bold'), fill=t.txt, anchor='w')
         with self._lock:
             tr = self._track
+        self.paint_header('Now playing',
+                          meta='Playing' if tr.playing and tr.title else 'Paused' if tr.title else 'Ready',
+                          meta_on=tr.playing)
         if self._collapsed:
             self._pending_cmd = None
             return
-        self.cv.create_text(self.W-20, HDR_H//2,
-                            text='PLAYING' if tr.playing and tr.title else 'PAUSED' if tr.title else 'READY',
-                            font=('Segoe UI', 8), fill=t.accent if tr.playing else t.txt2, anchor='e')
         if not PIL_OK:
             self.cv.create_text(self.W//2, self.H//2, text='Media display unavailable', fill=t.txt2)
             return

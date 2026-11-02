@@ -157,8 +157,20 @@ def main() -> None:
             from desktop_widgets.ui.welcome_screen import WelcomeScreen
             WelcomeScreen(app, on_done=lambda: None)
 
-        from desktop_widgets.services.updater import start_update_check
+        # ── Anonymous usage ping and the occasional feedback prompt ──
         import desktop_widgets.config as config
+        from desktop_widgets.services import telemetry
+        telemetry.record_version(app.data, VERSION)
+        config.save(app.data)
+        telemetry.ping(app.data, VERSION)   # last_ping is saved with the next config save
+        def _maybe_ask_feedback():
+            # Wait until the desktop is settled and no modal screen is open.
+            if telemetry.should_ask_feedback(app.data) and app.root.grab_current() is None:
+                from desktop_widgets.ui.feedback_screen import FeedbackScreen
+                FeedbackScreen(app, VERSION)
+        app.root.after(3 * 60 * 1000, _maybe_ask_feedback)
+
+        from desktop_widgets.services.updater import start_update_check
         start_update_check(app.root, before_install=lambda: config.save(app.data),
                            theme=config.get_theme(app.data))
         app.run()

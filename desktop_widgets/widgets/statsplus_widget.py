@@ -8,7 +8,7 @@ import subprocess, threading, time, math
 from typing import TYPE_CHECKING
 
 import tkinter as tk
-from desktop_widgets.theme import HDR_H
+from desktop_widgets.theme import HDR_H, INSET, R_TILE
 from desktop_widgets.widgets.base_widget import BaseWidget
 import desktop_widgets.config as config
 
@@ -43,11 +43,12 @@ ALL_METRICS = [
 ]
 DEFAULT_METRICS = ["cpu_pct", "cpu_temp", "ram_pct", "gpu_pct", "gpu_temp"]
 
-TILE_H   = 160
+TILE_H   = 124
+GAP      = 8       # space between tiles
 MIN_COLS = 1
 MAX_COLS = 4
 DEF_COLS = 2
-SCALE    = 2      # render at 2x, downscale for antialiasing
+SCALE    = 3      # render at 3x, downscale for antialiasing
 
 
 def _hex(c: str) -> tuple:
@@ -73,90 +74,68 @@ def _hex_rgba(c: str, a: int = 255) -> tuple:
     return (r, g, b, a)
 
 
+def _font(name: str, size: int):
+    try:
+        return ImageFont.truetype(name, size)
+    except OSError:
+        return ImageFont.load_default()
+
+
 def _draw_tile_pil(tile_w: int, tile_h: int,
                    label: str, disp: str, sub: str | None,
                    frac: float, color: str, bg: str, border: str,
                    txt2: str, widget_bg: str,
                    is_uptime: bool = False) -> "Image.Image":
     """
-    Render one Stats+ tile at SCALE×size using PIL, return downscaled image.
-    widget_bg: the actual widget background color (used to fill the full tile
-               so there are no transparent seams between tiles).
+    One Stats+ tile in the media-card style: bordered rounded panel, small
+    capitalised label, and a 270° gauge with the value in its centre.
+    Rendered at SCALE× and downscaled for antialiasing.
     """
     S = SCALE
-    W = tile_w * S
-    H = tile_h * S
-    GAP = 4 * S   # gap around tile edge
-
-    # Start with widget background — no transparent edges
+    W, H = tile_w * S, tile_h * S
     img = Image.new("RGBA", (W, H), _hex_rgba(widget_bg))
-    d   = ImageDraw.Draw(img)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, W-1, H-1], radius=R_TILE*S,
+                        fill=_hex_rgba(bg), outline=_hex_rgba(border), width=S)
 
-    # Tile card — slightly lighter than widget bg, no border outline
-    d.rounded_rectangle([GAP, GAP, W-GAP-1, H-GAP-1],
-                         radius=10*S, fill=_hex_rgba(bg))
+    d.text((12*S, 11*S), label.upper(), fill=_hex_rgba(txt2),
+           font=_font("segoeuib.ttf", 8*S), anchor="lt")
 
-    # ── Arc ring ───────────────────────────────────────────
-    ARC_R  = int(min(tile_w, tile_h) * 0.26 * S)
-    arc_cx = W // 2
-    arc_cy = int(H * 0.80)
-    ARC_W  = max(5*S, int(ARC_R * 0.18))
-    START  = 220
-    SWEEP  = 260
+    cx, cy = W // 2, int((tile_h * 0.57) * S)
+    if is_uptime:
+        d.text((cx, cy), disp, fill=_hex_rgba(color),
+               font=_font("segoeuib.ttf", 20*S), anchor="mm")
+        if sub:
+            d.text((cx, cy + 18*S), sub, fill=_hex_rgba(txt2),
+                   font=_font("segoeui.ttf", 8*S), anchor="mt")
+        return img.resize((tile_w, tile_h), Image.LANCZOS)
 
-    # Track — use a mid-brightness color so it's visible but subtle
-    def _mid(c: str, bg_c: str, amt: float = 0.25) -> tuple:
-        """Blend color toward bg for the track."""
-        cr, cg, cb = _hex(c); br, bg_, bb = _hex(bg_c)
-        return (int(cr*amt+br*(1-amt)), int(cg*amt+bg_*(1-amt)),
-                int(cb*amt+bb*(1-amt)), 255)
-    track_col = _mid(color if not is_uptime else txt2, bg, 0.30)
+    radius = int(min(tile_w * 0.30, tile_h * 0.32) * S)
+    ring_w = max(4*S, int(radius * 0.15))
+    box = [cx-radius, cy-radius, cx+radius, cy+radius]
+    START, SWEEP = 135, 270           # opening at the bottom, like a speedometer
+    cr, cg, cb = _hex(color); br, bgc, bb = _hex(bg)
+    track = (int(cr*0.22+br*0.78), int(cg*0.22+bgc*0.78), int(cb*0.22+bb*0.78), 255)
 
-    bbox = [arc_cx-ARC_R, arc_cy-ARC_R, arc_cx+ARC_R, arc_cy+ARC_R]
-    d.arc(bbox, start=-START, end=-(START-SWEEP),
-          fill=track_col, width=ARC_W)
+    def cap(angle, fill):
+        a = math.radians(angle)
+        r = radius - ring_w / 2
+        x, y = cx + r*math.cos(a), cy + r*math.sin(a)
+        d.ellipse([x-ring_w/2, y-ring_w/2, x+ring_w/2, y+ring_w/2], fill=fill)
 
-    # Fill arc
-    if not is_uptime and frac > 0.005:
-        fill_sweep = int(SWEEP * min(frac, 1.0))
-        d.arc(bbox, start=-START, end=-(START-fill_sweep),
-              fill=_hex_rgba(color), width=ARC_W)
+    d.arc(box, start=START, end=START+SWEEP, fill=track, width=ring_w)
+    cap(START, track); cap(START+SWEEP, track)
+    if frac > 0.005:
+        end = START + SWEEP * min(frac, 1.0)
+        d.arc(box, start=START, end=end, fill=_hex_rgba(color), width=ring_w)
+        cap(START, _hex_rgba(color)); cap(end, _hex_rgba(color))
 
-        # Tip dot with glow
-        tip_rad = math.radians(-(START - fill_sweep))
-        tip_px  = arc_cx + ARC_R * math.cos(tip_rad)
-        tip_py  = arc_cy + ARC_R * math.sin(tip_rad)
-        dot_r   = max(4*S, ARC_W // 2 + S)
-        d.ellipse([tip_px-dot_r-2*S, tip_py-dot_r-2*S,
-                   tip_px+dot_r+2*S, tip_py+dot_r+2*S],
-                  fill=_hex_rgba(color, 70))
-        d.ellipse([tip_px-dot_r, tip_py-dot_r,
-                   tip_px+dot_r, tip_py+dot_r],
-                  fill=_hex_rgba(color))
-
-    # ── Label ─────────────────────────────────────────────
-    try:    lbl_font = ImageFont.truetype("segoeui.ttf", 9*S)
-    except: lbl_font = ImageFont.load_default()
-    d.text((W//2, 18*S), label, fill=_hex_rgba(txt2),
-           font=lbl_font, anchor="mt")
-
-    # ── Big number ────────────────────────────────────────
-    num_y  = int(H * 0.36)
-    num_fs = max(22*S, min(32*S, int(tile_w * 0.22 * S)))
-    try:    num_font = ImageFont.truetype("segoeuib.ttf", num_fs)
-    except:
-        try: num_font = ImageFont.truetype("segoeui.ttf", num_fs)
-        except: num_font = ImageFont.load_default()
-    num_col = _hex_rgba(color) if not is_uptime else _hex_rgba(txt2)
-    d.text((W//2, num_y), disp, fill=num_col, font=num_font, anchor="mm")
-
-    # Sub-label
+    size = 19 if len(disp) <= 4 else 15
+    d.text((cx, cy - (3*S if sub else 0)), disp, fill=_hex_rgba(color),
+           font=_font("segoeuib.ttf", size*S), anchor="mm")
     if sub:
-        try:    sub_font = ImageFont.truetype("segoeui.ttf", 7*S)
-        except: sub_font = ImageFont.load_default()
-        d.text((W//2, num_y + num_fs//2 + 4*S), sub,
-               fill=_hex_rgba(txt2), font=sub_font, anchor="mt")
-
+        d.text((cx, cy + 11*S), sub, fill=_hex_rgba(txt2),
+               font=_font("segoeui.ttf", 8*S), anchor="mm")
     return img.resize((tile_w, tile_h), Image.LANCZOS)
 
 
@@ -178,8 +157,8 @@ class _Sample:
 
 
 class StatsPlusWidget(BaseWidget):
-    MIN_H = HDR_H + TILE_H
-    MAX_H = HDR_H + TILE_H * 6
+    MIN_H = HDR_H + TILE_H + 2*INSET
+    MAX_H = HDR_H + (TILE_H + GAP) * 11 + 2*INSET
 
     def __init__(self, mgr: "Manager") -> None:
         self._sample      = _Sample()
@@ -193,8 +172,7 @@ class StatsPlusWidget(BaseWidget):
         self._tile_refs: list = []   # keep ImageTk refs alive
 
         cols   = mgr.data.get("statsplus", {}).get("cols", DEF_COLS)
-        tile_w = self._tile_w_for_cols(cols)
-        fixed_w = tile_w * cols
+        fixed_w = self._width_for_cols(cols)
         self.MIN_W = fixed_w
         self.MAX_W = fixed_w
 
@@ -205,7 +183,7 @@ class StatsPlusWidget(BaseWidget):
             x=blk.get("x", 460),
             y=blk.get("y", 60),
             w=fixed_w,
-            h=blk.get("h", HDR_H + TILE_H * 3),
+            h=self._natural_h(),
             collapsed=blk.get("collapsed", False),
         )
         self.cv.bind("<Button-3>", self._right_click)
@@ -216,7 +194,22 @@ class StatsPlusWidget(BaseWidget):
 
     @staticmethod
     def _tile_w_for_cols(cols: int) -> int:
-        return {1: 180, 2: 150, 3: 130, 4: 115}.get(max(1, min(4, cols)), 150)
+        return {1: 184, 2: 140, 3: 124, 4: 112}.get(max(1, min(4, cols)), 140)
+
+    @classmethod
+    def _width_for_cols(cls, cols: int) -> int:
+        cols = max(MIN_COLS, min(MAX_COLS, cols))
+        return 2*INSET + cols*cls._tile_w_for_cols(cols) + (cols-1)*GAP
+
+    def _visible_metrics(self) -> list[str]:
+        has_gpu = getattr(self, "_sample", None) is not None and self._sample.has_gpu
+        return [m for m in self._active_metrics()
+                if has_gpu or m not in ("gpu_pct", "gpu_temp")]
+
+    def _natural_h(self) -> int:
+        """Height follows the tiles; the widget never clips or leaves gaps."""
+        rows = max(1, -(-len(self._visible_metrics()) // max(1, self._cols())))
+        return HDR_H + 2*INSET + rows*TILE_H + (rows-1)*GAP
 
     # ── Polling ────────────────────────────────────────────
 
@@ -353,9 +346,7 @@ class StatsPlusWidget(BaseWidget):
 
     def _draw(self) -> None:
         t = self._theme()
-        self.cv.create_text(self.W // 2, HDR_H // 2,
-            text="Stats+", font=("Segoe UI", 9, "bold"),
-            fill=t.txt2, anchor="center")
+        self.paint_header("System stats", meta="Live", meta_on=True)
 
         if self._collapsed:
             return
@@ -400,19 +391,19 @@ class StatsPlusWidget(BaseWidget):
         for i, key in enumerate(visible):
             col = i % cols
             row = i // cols
-            ax  = col * tile_w
-            ay  = HDR_H + row * TILE_H
+            ax  = INSET + col * (tile_w + GAP)
+            ay  = HDR_H + INSET + row * (TILE_H + GAP)
 
             raw, mx, disp, sub = vals[key]
             frac  = max(0.0, min(1.0, (raw / mx) if mx else min(raw / 500, 1.0)))
-            color = _metric_color(frac, t) if key != "uptime" else t.txt2
+            color = _metric_color(frac, t) if key != "uptime" else t.txt
 
             tile_img = _draw_tile_pil(
                 tile_w, TILE_H,
                 label=labels.get(key, key),
                 disp=disp, sub=sub,
                 frac=frac, color=color,
-                bg=t.hov, border=t.border, txt2=t.txt2,
+                bg=t.btn, border=t.border, txt2=t.txt2,
                 widget_bg=t.bg,
                 is_uptime=(key == "uptime"),
             )
@@ -445,11 +436,12 @@ class StatsPlusWidget(BaseWidget):
 
     def set_cols(self, cols: int) -> None:
         cols   = max(MIN_COLS, min(MAX_COLS, cols))
-        tile_w = self._tile_w_for_cols(cols)
-        new_w  = tile_w * cols
+        new_w  = self._width_for_cols(cols)
         blk    = self.mgr.data.setdefault("statsplus", {})
         blk["cols"] = cols
         self.W = new_w; self.MIN_W = new_w; self.MAX_W = new_w
+        if not self._collapsed:
+            self._full_h = self.H = self._natural_h()
         self.win.geometry(f"{new_w}x{self.H}")
         self.cv.config(width=new_w)
         config.save(self.mgr.data)

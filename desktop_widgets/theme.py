@@ -20,6 +20,22 @@ ICON_SZ     = 52
 ICON_NAT    = 256
 COLLAPSE_BTN_W = 28
 
+# ── Type scale and shape tokens (modelled on the media widget) ─────────────
+FONT = "Segoe UI"
+TYPE = {
+    "display": (FONT, 21, "bold"),   # screen titles
+    "title":   (FONT, 15, "bold"),   # card titles inside screens
+    "header":  (FONT, 10, "bold"),   # widget header title
+    "body":    (FONT, 10),
+    "label":   (FONT, 9, "bold"),    # small capitalised eyebrows
+    "caption": (FONT, 9),
+    "meta":    (FONT, 8, "bold"),    # header status (PLAYING, 7 APPS)
+}
+R_PANEL = 16     # inset panels inside a widget (media artwork card)
+R_TILE  = 12     # app / file / stat tiles
+INSET   = 12     # gap between widget edge and its inset panel
+ACTION_R = 13    # round header button radius
+
 
 @dataclass
 class Theme:

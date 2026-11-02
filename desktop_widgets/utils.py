@@ -460,6 +460,9 @@ def _extract(path: str, size: int):
         if path.lower().endswith('.lnk'):
             r = _shortcut_icon(path, size)
             if r: return r
+        if path.lower().endswith('.url'):
+            r = _url_icon(path, size)
+            if r: return r
         r = _shell_icon(path, size)
         if r: return r
     # Folders — use SHGetFileInfo to get the system folder icon
@@ -499,10 +502,31 @@ def _shortcut_icon(path: str, size: int):
         shortcut = win32com.client.Dispatch('WScript.Shell').CreateShortcut(path)
         location = shortcut.IconLocation or ''
         icon_file = os.path.expandvars(location.rsplit(',', 1)[0].strip('"'))
-        if os.path.isfile(icon_file):
-            return (_image_icon(icon_file, size) or _private_icon(icon_file, size)
-                    or _extracticonex(icon_file, size))
+        # Most shortcuts leave IconLocation empty; the target holds the icon.
+        target = os.path.expandvars(shortcut.TargetPath or '')
+        for candidate in (icon_file, target):
+            if candidate and os.path.isfile(candidate):
+                icon = (_image_icon(candidate, size) or _private_icon(candidate, size)
+                        or _extracticonex(candidate, size))
+                if icon:
+                    return icon
     except Exception:
+        pass
+    return None
+
+
+def _url_icon(path: str, size: int):
+    """Steam/Epic .url shortcuts name a full-size .ico in IconFile."""
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                if line.strip().upper().startswith('ICONFILE='):
+                    icon_file = line.strip()[9:].strip('"').rsplit(',', 1)[0]
+                    icon_file = os.path.expandvars(icon_file)
+                    if os.path.isfile(icon_file):
+                        return (_image_icon(icon_file, size)
+                                or _private_icon(icon_file, size))
+    except OSError:
         pass
     return None
 

@@ -65,6 +65,38 @@ def recolor_shape(canvas, item, fill):
     canvas._shape_refs[item] = (cache[updated], updated)
 
 
+def glyph_image(kind, color, size):
+    """Small antialiased UI glyphs: chevron_down, chevron_right, plus."""
+    scale = 4
+    s = size*scale
+    image = Image.new('RGBA', (s, s))
+    draw = ImageDraw.Draw(image)
+    width = max(2*scale, int(s*0.13))
+    pts = {'chevron_down':  [(0.28, 0.40), (0.50, 0.62), (0.72, 0.40)],
+           'chevron_right': [(0.40, 0.28), (0.62, 0.50), (0.40, 0.72)]}.get(kind)
+    if pts:
+        draw.line([(x*s, y*s) for x, y in pts], fill=color, width=width, joint='curve')
+        for x, y in (pts[0], pts[-1]):
+            r = width/2
+            draw.ellipse((x*s-r, y*s-r, x*s+r, y*s+r), fill=color)
+    elif kind == 'plus':
+        for box in ((0.26, 0.50, 0.74, 0.50), (0.50, 0.26, 0.50, 0.74)):
+            draw.line([(box[0]*s, box[1]*s), (box[2]*s, box[3]*s)], fill=color, width=width)
+        r = width/2
+        for x, y in ((0.26, 0.5), (0.74, 0.5), (0.5, 0.26), (0.5, 0.74)):
+            draw.ellipse((x*s-r, y*s-r, x*s+r, y*s+r), fill=color)
+    return image.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def glyph(canvas, x, y, kind, color, size=16, tags=()):
+    """Place a cached glyph centred on (x, y)."""
+    cache = canvas.__dict__.setdefault('_glyph_cache', {})
+    key = (kind, color, size)
+    if key not in cache:
+        cache[key] = ImageTk.PhotoImage(glyph_image(kind, color, size), master=canvas)
+    return canvas.create_image(x, y, image=cache[key], anchor='center', tags=tags)
+
+
 def widget_icon(kind, color, size=40):
     scale = 3
     image = Image.new('RGBA', (48*scale, 48*scale))

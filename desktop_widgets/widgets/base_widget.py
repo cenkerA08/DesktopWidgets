@@ -6,7 +6,7 @@ Subclasses only need to implement _draw() and optionally override HDR_H, MIN_W, 
 from __future__ import annotations
 import tkinter as tk
 from typing import TYPE_CHECKING
-from desktop_widgets.theme import CHROMA, SNAP, MARGIN, RSZ, HDR_H
+from desktop_widgets.theme import CHROMA, SNAP, MARGIN, RSZ, HDR_H, TYPE, R_PANEL, ACTION_R, INSET
 from desktop_widgets.utils import snap_to_grid, clamp_to_screen, magnetic_snap, push_desktop
 import desktop_widgets.config as _config_mod   # avoid name clash with local vars
 
@@ -18,7 +18,7 @@ import desktop_widgets.config as config
 from desktop_widgets.services.screens import area_for, clamp
 
 
-from desktop_widgets.ui.drawing import rounded_rect as _rounded_rect
+from desktop_widgets.ui.drawing import rounded_rect as _rounded_rect, glyph
 
 
 class BaseWidget:
@@ -128,12 +128,11 @@ class BaseWidget:
             self.cv.create_line(16, HDR_H, self.W-16, HDR_H, fill=t.border, width=1)
 
         # Collapse button
-        arrow = "▶" if self._collapsed else "▼"
         self.cv.create_rectangle(0, 0, HDR_H, HDR_H,
                                  fill="", outline="", tags="collapse_btn")
-        self.cv.create_text(HDR_H // 2, HDR_H // 2, text=arrow,
-                            font=("Segoe UI", 9), fill=t.txt2, anchor="center",
-                            tags="collapse_btn")
+        glyph(self.cv, HDR_H // 2 + 2, HDR_H // 2,
+              "chevron_right" if self._collapsed else "chevron_down",
+              t.txt2, 16, tags="collapse_btn")
 
         # Resize grip dots — only shown when resize is enabled
         if (not self._collapsed and self.mgr.data.get("resize_enabled", True)
@@ -143,6 +142,57 @@ class BaseWidget:
                 self.cv.create_line(self.W-14-off, self.H-12, self.W-14, self.H-12-off,
                                     fill=gc, width=1)
         self._draw()
+
+    def paint_header(self, title: str, meta: str = "", meta_on: bool = False,
+                     action: bool = False) -> None:
+        """Shared header: bold title left, status in caps and a round + right."""
+        t = self._theme()
+        right = self.W - 16
+        if action:
+            cx, cy, r = self.W - HDR_H // 2 - 2, HDR_H // 2, ACTION_R
+            _rounded_rect(self.cv, cx - r, cy - r, cx + r + 1, cy + r + 1, r,
+                          fill=t.btn, outline=t.border, width=1)
+            glyph(self.cv, cx, cy, "plus", t.txt, 14, tags="add_btn")
+            right = cx - r - 10
+        meta_w = 0
+        if meta and not self._collapsed:
+            item = self.cv.create_text(right, HDR_H // 2, text=meta.upper(), font=TYPE["meta"],
+                                       fill=t.accent if meta_on else t.txt2, anchor="e")
+            x1, _, x2, _ = self.cv.bbox(item)
+            meta_w = x2 - x1 + 10
+        room = max(24, right - meta_w - (HDR_H + 4))
+        item = self.cv.create_text(HDR_H + 4, HDR_H // 2, text=title,
+                                   font=TYPE["header"], fill=t.txt, anchor="w")
+        # Trim long titles to the space left of the status text.
+        while title and self.cv.bbox(item)[2] - self.cv.bbox(item)[0] > room:
+            title = title[:-1]
+            self.cv.itemconfigure(item, text=title.rstrip() + "…")
+
+    def paint_panel(self, x1: int, y1: int, x2: int, y2: int, fill: str | None = None):
+        """Inset rounded panel, the same treatment as the media artwork card."""
+        t = self._theme()
+        return _rounded_rect(self.cv, x1, y1, x2, y2, R_PANEL,
+                             fill=fill or t.btn, outline=t.border, width=1)
+
+    def paint_empty(self, kind: str, title: str, hint: str) -> None:
+        """Empty state: an inset panel with the widget's icon and a short hint."""
+        from PIL import ImageTk
+        from desktop_widgets.ui.drawing import widget_icon
+        t = self._theme()
+        x1, y1, x2, y2 = INSET, HDR_H + INSET, self.W - INSET, self.H - INSET
+        self.paint_panel(x1, y1, x2, y2)
+        cy = (y1 + y2) // 2
+        compact = y2 - y1 < 110
+        if not compact:
+            photo = ImageTk.PhotoImage(widget_icon(kind, t.accent, 28), master=self.cv)
+            self.__dict__.setdefault("_empty_refs", []).append(photo)
+            del self._empty_refs[:-2]
+            self.cv.create_image(self.W // 2, cy - 26, image=photo)
+        self.cv.create_text(self.W // 2, cy + (0 if compact else 6) - 8, text=title,
+                            font=TYPE["header"], fill=t.txt)
+        self.cv.create_text(self.W // 2, cy + (0 if compact else 6) + 10, text=hint,
+                            font=TYPE["caption"], fill=t.txt2,
+                            width=max(60, x2 - x1 - 24), justify="center")
 
     def fit_work_area(self):
         """Keep content growth, expansion and display changes above the taskbar."""

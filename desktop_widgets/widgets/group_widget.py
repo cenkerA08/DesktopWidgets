@@ -30,7 +30,7 @@ except ImportError:
 
 # ── Tile constants ─────────────────────────────────────────
 TILE_PAD = 6    # padding inside each tile
-TILE_R   = 8    # tile corner radius
+TILE_R   = _th.R_TILE    # tile corner radius
 TILE_GAP = 4    # gap between tiles — widget bg shows through as natural separator
 
 
@@ -146,16 +146,10 @@ class GroupWidget(BaseWidget):
         gid  = self.group["id"]
 
         # ── Header ────────────────────────────────────────
-        # Title centred
-        self.cv.create_text(HDR_H + 4, HDR_H // 2,
-            text=clip(self.group["name"], max(4, (ww-2*HDR_H)//8)),
-            font=("Segoe UI", 11, "bold"), fill=t.txt, anchor="w")
-
-        # + button — top right, same hit zone as before
-        plus_hov = False
-        self.cv.create_text(ww - HDR_H // 2, HDR_H // 2, text="+",
-            font=("Segoe UI", 15, "bold"), fill=t.txt2, anchor="center",
-            tags="add_btn")
+        count = len(apps)
+        self.paint_header(self.group["name"],
+                          meta=f"{count} app{'s' if count != 1 else ''}" if count else "",
+                          action=True)
         self._spots.append({
             "x1": ww - HDR_H, "y1": 0, "x2": ww, "y2": HDR_H,
             "click": lambda: self.mgr.add_app(gid),
@@ -166,10 +160,8 @@ class GroupWidget(BaseWidget):
 
         # ── Empty hint ────────────────────────────────────
         if not apps:
-            hint = "Drop .exe / .lnk here" if DND_OK else "Click + to add apps"
-            self.cv.create_text(ww // 2, HDR_H + (wh - HDR_H) // 2,
-                text=hint, font=("Segoe UI", 9),
-                fill=t.txt2, anchor="center", justify="center")
+            self.paint_empty("folder", "No apps yet",
+                             "Press + or drop shortcuts here" if DND_OK else "Press + to add apps")
             return
 
         # ── Tile layout ───────────────────────────────────

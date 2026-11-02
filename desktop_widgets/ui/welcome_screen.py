@@ -33,7 +33,7 @@ STEPS = [
         "icon":  "📊",
         "title": "Stats & system info",
         "body":  (
-            "The Stats+ widget shows CPU, RAM, GPU\n"
+            "The System stats widget shows CPU, RAM, GPU\n"
             "and disk usage in real time, so you always\n"
             "know what your PC is doing."
         ),
