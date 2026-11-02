@@ -1,8 +1,10 @@
 name = "desktopwidgets-api"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
+workers_dev = true
+preview_urls = false
 
 [[d1_databases]]
 binding = "DB"
 database_name = "desktopwidgets"
-database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+database_id = "d85c68ce-a0a1-4eb1-9d7e-6d00b214c70b"

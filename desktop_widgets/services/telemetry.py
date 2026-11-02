@@ -13,7 +13,7 @@ from datetime import date, datetime
 
 # Set this to your deployed Worker URL (see backend/README.md); empty disables
 # all network calls. DESKTOPWIDGETS_TELEMETRY_URL overrides it for testing.
-TELEMETRY_URL = ""
+TELEMETRY_URL = "https://desktopwidgets-api.cenker-dw.workers.dev"
 
 # When to ask for feedback: only after real use, then rarely.
 FIRST_ASK_AFTER_DAYS = 14

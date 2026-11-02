@@ -31,7 +31,8 @@ npx wrangler deploy
 For `ADMIN_TOKEN`, type any long random string; it protects `/stats`.
 `deploy` prints your URL, for example
 `https://desktopwidgets-api.<you>.workers.dev`. Put that URL in
-`TELEMETRY_URL` in `desktop_widgets/services/telemetry.py` and release.
+`TELEMETRY_URL` in `desktop_widgets/services/telemetry.py` and release
+(this project uses `https://desktopwidgets-api.cenker-dw.workers.dev`).
 Until that is set, the app sends nothing and never shows the feedback card.
 
 ## Seeing your numbers
