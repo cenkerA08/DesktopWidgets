@@ -55,7 +55,7 @@ The same queries work in the Cloudflare dashboard under
 **Storage & Databases → D1 → desktopwidgets → Console**.
 
 "Active" means the app pinged in that window. Users who switch off usage stats
-in Settings stop pinging, so treat the counts as a lower bound.
+in data.json stop pinging, so treat the counts as a lower bound.
 
 ## When the app asks for feedback
 

@@ -674,23 +674,6 @@ class SettingsScreen:
         tk.Label(p, text=f"Saved to:  {config.DATA_FILE}",
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2).pack(
                  anchor="w", padx=PAD, pady=(4,0))
-        self._section(p, t, "Privacy")
-        from desktop_widgets.services import telemetry
-        tele = telemetry.state(self.mgr.data)
-        tk.Label(p, text="Once a day DesktopWidgets can send an anonymous ping: a random install ID, "
-                         "the app version and your Windows version. Your country is worked out by the "
-                         "server; your IP address is not stored. Nothing else is collected.",
-                 font=("Segoe UI", 8), bg=t.bg, fg=t.txt2,
-                 wraplength=460, justify="left").pack(anchor="w", padx=PAD, pady=(4, 8))
-        privacy = tk.Frame(p, bg=t.bg)
-        privacy.pack(anchor="w", padx=PAD)
-        def set_stats(enabled):
-            tele["enabled"] = enabled
-            config.save(self.mgr.data)
-            for child in privacy.winfo_children(): child.destroy()
-            _btn(privacy, "Stop sending usage stats" if enabled else "Send anonymous usage stats",
-                 lambda: set_stats(not enabled), t, accent=not enabled).pack(side="left")
-        set_stats(tele["enabled"])
         self._section(p, t, "Updates")
         tk.Label(p, text="Updates are checked at startup. You choose whether to download, install, and restart.",
                  font=("Segoe UI", 8), bg=t.bg, fg=t.txt2,
@@ -724,7 +707,7 @@ class SettingsScreen:
     def _set_icon_size(self, val):
         self.mgr.data["icon_size"] = val
         import desktop_widgets.theme as th, desktop_widgets.utils as utils
-        th.ICON_SZ = val; utils._CACHE.clear()
+        th.apply_sizes(self.mgr.data); utils._CACHE.clear()
         config.save(self.mgr.data)
         for gw in self.mgr.wins.values():
             gw._refresh_size(); gw.redraw()
@@ -733,8 +716,7 @@ class SettingsScreen:
     def _set_cell_size(self, val):
         self.mgr.data["cell_size"] = val
         import desktop_widgets.theme as th
-        cw, ch, pad = {"compact":(72,74,10),"normal":(88,90,14),"spacious":(104,108,18)}[val]
-        th.CELL_W = cw; th.CELL_H = ch; th.PAD = pad
+        th.apply_sizes(self.mgr.data)
         config.save(self.mgr.data)
         for gw in self.mgr.wins.values():
             gw._refresh_size(); gw.redraw()

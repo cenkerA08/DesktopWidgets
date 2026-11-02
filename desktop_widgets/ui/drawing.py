@@ -1,13 +1,17 @@
 """Antialiased, cached canvas shapes; geometry stays in native screen pixels."""
 from collections import OrderedDict
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageColor, ImageDraw, ImageTk
 
 
-def rounded_image(w, h, radius, fill, outline='', border=1, corners='all'):
+def rounded_image(w, h, radius, fill, outline='', border=1, corners='all', hard=False):
     scale = 3
     w, h = max(1, int(w)), max(1, int(h))
     r = max(0, min(radius, w/2, h/2))
-    image = Image.new('RGBA', (w*scale, h*scale))
+    # Transparent pixels carry the edge colour, not black, so downscaling
+    # never darkens the antialiased rim.
+    edge = outline or fill
+    rim = ImageColor.getrgb(edge)[:3] + (0,) if isinstance(edge, str) and edge else (0, 0, 0, 0)
+    image = Image.new('RGBA', (w*scale, h*scale), rim)
     draw = ImageDraw.Draw(image)
     def shape(inset, color):
         if not color:
@@ -27,10 +31,49 @@ def rounded_image(w, h, radius, fill, outline='', border=1, corners='all'):
         shape(border, fill or (0,0,0,0))
     else:
         shape(0, fill)
-    return image.resize((w,h), Image.Resampling.LANCZOS)
+    image = image.resize((w,h), Image.Resampling.LANCZOS)
+    return key_out(image) if hard else image
 
 
-def rounded_rect(canvas, x1, y1, x2, y2, r, fill='', outline='', width=1, corners='all'):
+def card(canvas, x, y, w, h, r, fill, outline, band_fill, band_h):
+    """A widget's outer card with its header band, as one keyed-out image.
+
+    Drawing the band as a separate image over the corner would darken the
+    key colour again (see key_out), so both are rendered together."""
+    cache = canvas.__dict__.setdefault('_card_cache', {})
+    key = (int(w), int(h), r, fill, outline, band_fill, band_h)
+    if key not in cache:
+        scale = 3
+        base = rounded_image(w, h, r, fill, outline)
+        if band_fill and band_fill != fill and band_h > 0:
+            inner = rounded_image(w, h, r, band_fill, outline)
+            band_mask = Image.new('L', base.size)
+            band_mask.paste(255, (0, 0, base.width, min(base.height, int(band_h))))
+            base.paste(inner, (0, 0), band_mask)
+        cache.clear()           # one live card per canvas
+        cache[key] = ImageTk.PhotoImage(key_out(base), master=canvas)
+    return canvas.create_image(x, y, image=cache[key], anchor='nw')
+
+
+def key_out(image):
+    """Make a window's outer silhouette safe for colour-key transparency.
+
+    Windows only hides pixels that are exactly the key colour. A half-
+    transparent edge pixel blends with the near-black key and shows as a dark
+    fringe, and Tk even darkens fully transparent pixels by one step when it
+    draws them (#010203 -> #000102). So: solid edge, and the outside painted
+    with the exact key colour, fully opaque.
+    """
+    from desktop_widgets.theme import CHROMA
+    solid = image.getchannel('A').point(lambda a: 255 if a >= 128 else 0)
+    keyed = Image.new('RGBA', image.size, ImageColor.getrgb(CHROMA) + (255,))
+    keyed.paste(image.convert('RGB'), (0, 0), solid)
+    return keyed
+
+
+def rounded_rect(canvas, x1, y1, x2, y2, r, fill='', outline='', width=1, corners='all',
+                 hard=False):
+    """hard=True for a window's outer silhouette drawn over the transparent key."""
     cache = getattr(canvas, '_shape_cache', None)
     if cache is None:
         canvas._shape_cache = cache = OrderedDict()
@@ -38,7 +81,7 @@ def rounded_rect(canvas, x1, y1, x2, y2, r, fill='', outline='', width=1, corner
     # References for live items survive cache eviction; deleted items are released.
     live = set(canvas.find_all())
     canvas._shape_refs = {i: value for i,value in canvas._shape_refs.items() if i in live}
-    key = (int(x2-x1), int(y2-y1), r, fill, outline, width, corners)
+    key = (int(x2-x1), int(y2-y1), r, fill, outline, width, corners, hard)
     if key not in cache:
         cache[key] = ImageTk.PhotoImage(rounded_image(*key), master=canvas)
         while len(cache) > 12:

@@ -5,7 +5,7 @@ What leaves the machine:
   /feedback  install_id, app version, rating 1–5, optional text — only when sent
 
 The server derives the country from the connection (Cloudflare does this) and
-never stores the IP address. Users can switch pings off in Settings → System.
+never stores the IP address. data["telemetry"]["enabled"] = False turns pings off.
 """
 from __future__ import annotations
 import os, platform, threading, uuid

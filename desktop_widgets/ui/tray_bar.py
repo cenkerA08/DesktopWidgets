@@ -162,7 +162,7 @@ class TrayBar:
         t = config.get_theme(self.mgr.data)
         self.cv.delete('all')
         _rounded_rect(self.cv, 1, 1, self.W-1, self.H-1, 20,
-                      fill=t.hdr, outline=t.border, width=1)
+                      fill=t.hdr, outline=t.border, width=1, hard=True)
         if self._hover:
             x1, x2 = (5, self.W//2-2) if self._hover == 'add' else (self.W//2+2, self.W-5)
             _rounded_rect(self.cv, x1, 5, x2, self.H-5, 15, fill=t.btn_h)

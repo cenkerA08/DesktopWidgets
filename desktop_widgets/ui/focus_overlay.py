@@ -6,7 +6,9 @@ from desktop_widgets import config
 from desktop_widgets.theme import CHROMA
 from desktop_widgets.widgets.base_widget import _rounded_rect
 from desktop_widgets.services.screens import area_for
-from desktop_widgets.utils import get_icon, launch_app, clip
+from desktop_widgets.utils import launch_app, clip
+from desktop_widgets.theme import TYPE
+from desktop_widgets.ui.tiles import tile_photo, fit_label
 
 
 class FocusOverlay:
@@ -48,6 +50,8 @@ class FocusOverlay:
         self.win.geometry(f'{self._ww}x{self._wh}+{self._wx}+{self._wy}')
         self.cv = tk.Canvas(self.win, bg=CHROMA, highlightthickness=0)
         self.cv.pack(fill='both', expand=True)
+        self.cv.bind('<Motion>', self._track_buttons)
+        self.cv.bind('<Leave>', lambda e: self._track_buttons(type('E', (), {'x': -1, 'y': -1})))
         self.body = tk.Canvas(self.win, highlightthickness=0, yscrollincrement=32)
         self.body.place(x=24, y=104, width=self._ww-48, height=self._wh-190)
         self.win.bind('<Escape>', lambda e: self.close())
@@ -59,23 +63,46 @@ class FocusOverlay:
         self.win.focus_force()
 
     def _button(self, x, y, w, label, command, tag):
+        """Footer button. Hover is tracked from the pointer position (see
+        _track_buttons): redrawing on <Enter>/<Leave> would replace the item
+        under the cursor, fire <Leave>/<Enter> again and loop forever."""
+        self._buttons[tag] = (x, y, w, label, command)
+        self._draw_button(tag, hover=False)
+        self.cv.tag_bind(tag, '<Button-1>', lambda e: command())
+
+    def _draw_button(self, tag, hover):
         t = self._t
+        x, y, w, label, _ = self._buttons[tag]
+        self.cv.delete(tag)
         first = set(self.cv.find_all())
-        _rounded_rect(self.cv, x, y, x+w, y+40, 12, fill=t.btn, outline=t.border)
+        _rounded_rect(self.cv, x, y, x+w, y+40, 12,
+                      fill=t.hov if hover else t.btn,
+                      outline=t.accent if hover else t.border, width=2 if hover else 1)
         for item in set(self.cv.find_all()) - first:
             self.cv.addtag_withtag(tag, item)
-        self.cv.create_text(x+w/2, y+20, text=label, fill=t.txt,
-                            font=('Segoe UI', 10), tags=tag)
-        self.cv.tag_bind(tag, '<Button-1>', lambda e: command())
-        self.cv.tag_bind(tag, '<Enter>', lambda e: self.cv.config(cursor='hand2'))
-        self.cv.tag_bind(tag, '<Leave>', lambda e: self.cv.config(cursor=''))
+        self.cv.create_text(x+w/2, y+20, text=label, fill=t.txt if hover else t.txt3,
+                            font=TYPE['header'] if hover else TYPE['body'], tags=tag)
+
+    def _track_buttons(self, event):
+        hovered = next((tag for tag, (x, y, w, *_ ) in self._buttons.items()
+                        if x <= event.x <= x+w and y <= event.y <= y+40), None)
+        if hovered == self._hovered_button:
+            return
+        for tag in (self._hovered_button, hovered):
+            if tag in self._buttons:
+                self._draw_button(tag, hover=tag == hovered)
+        self._hovered_button = hovered
+        self.cv.config(cursor='hand2' if hovered else '')
 
     def _render(self):
         t = self._t
         w, h = self._ww, self._wh
         self.cv.delete('all')
+        self._buttons, self._hovered_button = {}, None
         from desktop_widgets.ui.components import paint_shell
-        paint_shell(self.cv, w, h, t, clip(self.group['name'], 42), self.close)
+        count = len(self.group.get('apps', []))
+        paint_shell(self.cv, w, h, t, clip(self.group['name'], 42), self.close,
+                    f"{count} APP{'S' if count != 1 else ''}  ·  DOUBLE-CLICK TO OPEN")
         self.cv.create_line(24, h-70, w-24, h-70, fill=t.border)
         n = len(self._groups)
         if n > 1:
@@ -105,33 +132,35 @@ class FocusOverlay:
             self.body.create_text(width/2, (self._wh-190)/2,
                                   text='A little space for your next idea.\nAdd apps to this folder to get started.',
                                   justify='center', fill=t.txt2, font=('Segoe UI', 12))
+        self._tiles, self._shown = {}, {}
+        label_font = TYPE['body']
         for i, app in enumerate(apps):
             x, y = int((i % cols)*cell)+6, (i//cols)*144+4
             tag = f'app_{i}'
-            first = set(self.body.find_all())
-            _rounded_rect(self.body, x, y, x+tile_w, y+tile_h, 16,
-                          fill=t.btn, outline='')
-            for item in set(self.body.find_all())-first:
-                self.body.addtag_withtag(tag, item)
-            icon = get_icon(app['path'], 56, app.get('icon_path'))
-            if icon:
-                self._refs.append(icon)
-                self.body.create_image(x+tile_w/2, y+45, image=icon, tags=tag)
-            else:
-                self.body.create_text(x+tile_w/2, y+45, text=app.get('name', '?')[:1].upper(),
-                                      fill=t.accent, font=('Segoe UI', 26, 'bold'), tags=tag)
-            self.body.create_text(x+tile_w/2, y+100, text=clip(app['name'], 24),
-                                  width=tile_w-16, fill=t.txt, font=('Segoe UI', 10), tags=tag)
+            photo = tile_photo(self.body, app, t, tile_w, tile_h, 60, 52, 'idle', 16)
+            self._refs.append(photo)
+            image = self.body.create_image(x, y, image=photo, anchor='nw', tags=tag)
+            label = self.body.create_text(x+tile_w/2, y+tile_h-22,
+                                          text=fit_label(self.body, app['name'], label_font, tile_w-20),
+                                          fill=t.txt3, font=label_font, tags=tag)
+            self._tiles[tag] = (app, image, label, tile_w, tile_h)
             self.body.tag_bind(tag, '<Double-Button-1>', lambda e, a=app: self._launch(a))
             self.body.tag_bind(tag, '<Button-3>', lambda e, a=app: self.mgr.app_ctx(a['path'], a['name'], self.group['id']))
             self.body.tag_bind(tag, '<Enter>', lambda e, key=tag: self._hover(key, True))
             self.body.tag_bind(tag, '<Leave>', lambda e, key=tag: self._hover(key, False))
 
     def _hover(self, tag, active):
+        """Swap in the lifted tile: tinted fill, accent outline, larger icon."""
+        if tag not in self._tiles:
+            return
+        app, image, label, tile_w, tile_h = self._tiles[tag]
         self.body.config(cursor='hand2' if active else '')
-        for item in self.body.find_withtag(tag):
-            from desktop_widgets.ui.drawing import recolor_shape
-            recolor_shape(self.body, item, self._t.hov if active else self._t.btn)
+        photo = tile_photo(self.body, app, self._t, tile_w, tile_h, 60, 52,
+                           'hover' if active else 'idle', 16)
+        self._shown[tag] = photo        # keep the visible image alive
+        self.body.itemconfigure(image, image=photo)
+        self.body.itemconfigure(label, fill=self._t.txt if active else self._t.txt3,
+                                font=TYPE['header'] if active else TYPE['body'])
 
     def _launch(self, app):
         launch_app(app['path'])

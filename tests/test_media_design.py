@@ -18,7 +18,7 @@ class MediaDesignTests(unittest.TestCase):
         for theme in (PRESETS['Graphite'], PRESETS['Porcelain']):
             image = _render_media(W_FIXED, FIXED_H-HDR_H, track, theme, 16)
             self.assertEqual(image.size, (W_FIXED, FIXED_H-HDR_H))
-            self.assertEqual(image.getpixel((0, image.height-1))[3], 0)
+            self.assertEqual(image.getpixel((0, image.height-1))[:3], (1, 2, 3))   # keyed out
             self.assertEqual(image.getpixel((60, 60))[3], 255)
 
     def test_controls_and_seek_reset_for_empty_and_collapsed_states(self):

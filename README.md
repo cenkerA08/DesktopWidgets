@@ -13,6 +13,13 @@ The app is not code-signed yet, so on first launch Windows may show
 happens for the first download; updates installed from inside the app do not show
 it. On PCs with Smart App Control turned on, unsigned apps cannot be started at all.
 
+## Privacy
+
+To count how many people use the app and in which countries, it sends one
+anonymous ping a day: a random install ID, the app version and the Windows
+version. No names, files or browsing data are collected, and the IP address is
+not stored. Now and then the app asks for optional feedback.
+
 ## Requirements
 
 - Windows 10 or newer is recommended.

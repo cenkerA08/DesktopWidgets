@@ -37,6 +37,8 @@ except ImportError:
 class Manager:
     def __init__(self) -> None:
         self.data = config.load()
+        import desktop_widgets.theme as _theme
+        _theme.apply_sizes(self.data)   # saved icon / tile size settings
         self.wins:         dict[int, GroupWidget]  = {}
         self.focus:        FocusOverlay | None     = None
         self.statsplus_win: StatsPlusWidget | None = None

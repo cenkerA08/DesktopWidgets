@@ -20,6 +20,18 @@ ICON_SZ     = 52
 ICON_NAT    = 256
 COLLAPSE_BTN_W = 28
 
+_CELL_SIZES = {"compact": (72, 74, 10), "normal": (88, 90, 18), "spacious": (104, 108, 18)}
+
+
+def apply_sizes(data: dict) -> None:
+    """Apply the saved icon/tile size settings; tiles always fit their icon."""
+    global ICON_SZ, CELL_W, CELL_H, PAD
+    ICON_SZ = int(data.get("icon_size", 52))
+    CELL_W, CELL_H, PAD = _CELL_SIZES.get(data.get("cell_size", "normal"), _CELL_SIZES["normal"])
+    CELL_W = max(CELL_W, ICON_SZ + 32)
+    CELL_H = max(CELL_H, ICON_SZ + 36)
+
+
 # ── Type scale and shape tokens (modelled on the media widget) ─────────────
 FONT = "Segoe UI"
 TYPE = {

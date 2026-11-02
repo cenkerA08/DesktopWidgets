@@ -18,7 +18,7 @@ import desktop_widgets.config as config
 from desktop_widgets.services.screens import area_for, clamp
 
 
-from desktop_widgets.ui.drawing import rounded_rect as _rounded_rect, glyph
+from desktop_widgets.ui.drawing import rounded_rect as _rounded_rect, glyph, card
 
 
 class BaseWidget:
@@ -107,22 +107,9 @@ class BaseWidget:
         t  = self._theme()
         r  = config.get_corner_radius(self.mgr.data)
 
-        # Background (rounded or flat) — inset 1px so border shows on all sides
-        _rounded_rect(self.cv, 1, 1, self.W - 1, self.H - 1,
-                      r, fill=t.bg, outline=t.border, width=1)
-
-        # Header band — clip to top corners only
-        if r > 0:
-            _rounded_rect(self.cv, 0, 0, self.W, HDR_H,
-                          r, fill=t.hdr, outline="",
-                          corners="all" if self._collapsed else "top")
-            # Fill the bottom of the header square (no bottom rounding)
-            if not self._collapsed:
-                self.cv.create_rectangle(1, r, self.W-1, HDR_H,
-                                         fill=t.hdr, outline="")
-        else:
-            self.cv.create_rectangle(0, 0, self.W, HDR_H,
-                                     fill=t.hdr, outline="")
+        # Card and header band as one image whose outside is exactly the
+        # transparent key colour, so the corners stay clean on any wallpaper.
+        card(self.cv, 1, 1, self.W - 2, self.H - 2, r, t.bg, t.border, t.hdr, HDR_H - 1)
 
         if not self._collapsed:
             self.cv.create_line(16, HDR_H, self.W-16, HDR_H, fill=t.border, width=1)

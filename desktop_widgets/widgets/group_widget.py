@@ -12,6 +12,7 @@ import desktop_widgets.theme as _th
 from desktop_widgets.widgets.base_widget import BaseWidget
 from desktop_widgets.utils import get_icon, clear_icon_cache, clip, launch_app, ask_string, ask_confirm, resolve_lnk, resolve_url, allow_dnd_from_explorer, setup_wmdrop
 import desktop_widgets.config as config
+from desktop_widgets.ui.tiles import tile_photo, fit_label
 
 if TYPE_CHECKING:
     from desktop_widgets.manager import Manager
@@ -168,13 +169,9 @@ class GroupWidget(BaseWidget):
         cols   = max(1, min(self.cols, (self.W - 2*_th.PAD) // _th.CELL_W))
         cell_w = _th.CELL_W
         cell_h = _th.CELL_H
-        icon_sz = _th.ICON_SZ
+        tile_w, tile_h = cell_w - TILE_GAP, cell_h - TILE_GAP
+        icon_sz = min(_th.ICON_SZ, tile_h - 32)
 
-        if not hasattr(self, "_tile_bg_cache"):
-            self._tile_bg_cache = {}
-        _tile_bg_cache = self._tile_bg_cache
-        if len(_tile_bg_cache) > 16:
-            _tile_bg_cache.clear()
         for i in self.tile_range(len(apps), cols, cell_h, _th.PAD):
             app = apps[i]
             col = i % cols; row = i // cols - self._row_offset
@@ -185,71 +182,26 @@ class GroupWidget(BaseWidget):
             is_drag = (i == self._drag_idx)
             is_over = (i == self._drag_over and self._drag_idx is not None
                        and i != self._drag_idx)
+            state = ("drag" if is_drag else "target" if is_over
+                     else "hover" if is_hov else "idle")
 
-            # Tile background — PIL for smooth rounded corners
             if PIL_OK:
-                S  = 2
-                tw, th = cell_w - TILE_GAP, cell_h - TILE_GAP
-                if is_hov or is_drag:
-                    img = Image.new("RGBA", (tw*S, th*S), (0,0,0,0))
-                    d   = ImageDraw.Draw(img)
-                    fill  = tuple(list(_hex_rgb(t.hov)) + [255])
-                    outl  = tuple(list(_hex_rgb(t.accent)) + [255])
-                    bw    = S
-                    ins   = bw // 2 + 1
-                    d.rounded_rectangle([ins, ins, tw*S-1-ins, th*S-1-ins],
-                                         radius=TILE_R*S,
-                                         fill=fill, outline=outl, width=bw)
-                    photo = ImageTk.PhotoImage(img.resize((tw, th), Image.LANCZOS))
-                else:
-                    cache_key = (tw, th, t.btn)
-                    if cache_key not in _tile_bg_cache:
-                        img = Image.new("RGBA", (tw*S, th*S), (0,0,0,0))
-                        d   = ImageDraw.Draw(img)
-                        fill = tuple(list(_hex_rgb(t.btn)) + [255])
-                        d.rounded_rectangle([2, 2, tw*S-3, th*S-3],
-                                             radius=TILE_R*S,
-                                             fill=fill, outline=None)
-                        _tile_bg_cache[cache_key] = ImageTk.PhotoImage(
-                            img.resize((tw, th), Image.LANCZOS))
-                    photo = _tile_bg_cache[cache_key]
+                photo = tile_photo(self.cv, app, t, tile_w, tile_h, icon_sz,
+                                   TILE_PAD + 1 + icon_sz // 2, state, TILE_R)
                 self._refs.append(photo)
                 self.cv.create_image(ax + TILE_GAP//2, ay + TILE_GAP//2,
                                      image=photo, anchor="nw")
             else:
-                # Fallback plain rectangle
-                fill = t.btn_h if is_hov else t.btn
-                outl = t.accent if (is_hov or is_drag) else t.border
-                self.cv.create_rectangle(ax+2, ay+2,
-                    ax+cell_w-2, ay+cell_h-2,
-                    fill=fill, outline=outl, width=2 if is_hov else 1)
+                self.cv.create_rectangle(ax+2, ay+2, ax+cell_w-2, ay+cell_h-2,
+                    fill=t.hov if is_hov else t.btn,
+                    outline=t.accent if (is_hov or is_drag) else t.border)
 
-            # Drop target indicator
-            if is_over:
-                self.cv.create_line(ax+2, ay+2, ax+2, ay+cell_h-2,
-                    fill=t.accent, width=3)
-
-            # Icon
-            icon_y = ay + TILE_PAD + icon_sz // 2 + 2
-            photo  = get_icon(app["path"], icon_sz, app.get('icon_path'))
-            if photo:
-                self._refs.append(photo)
-                self.cv.create_image(cx, icon_y, image=photo, anchor="center")
-            else:
-                r = icon_sz // 2
-                self.cv.create_rectangle(cx-r, icon_y-r, cx+r, icon_y+r,
-                    fill=t.accent, outline="")
-                self.cv.create_text(cx, icon_y,
-                    text=app["name"][0].upper() if app["name"] else "?",
-                    font=("Segoe UI", 18, "bold"), fill="white", anchor="center")
-
-            # Label
-            lbl_y = ay + cell_h - 14
-            self.cv.create_text(cx, lbl_y,
-                text=clip(app["name"], 10),
-                font=("Segoe UI", 9),
-                fill=t.txt if is_hov else t.txt2,
-                anchor="center", width=cell_w - 8)
+            # Label: trimmed to the tile's real width, brighter on hover
+            label_font = _th.TYPE["caption"]
+            self.cv.create_text(cx, ay + cell_h - 15,
+                text=fit_label(self.cv, app["name"], label_font, tile_w - 12),
+                font=label_font, fill=t.txt if is_hov else t.txt3,
+                anchor="center")
 
             p, n = app["path"], app["name"]
             self._spots.append({

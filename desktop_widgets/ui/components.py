@@ -2,6 +2,7 @@
 import tkinter as tk
 import tkinter.font as tkfont
 from desktop_widgets.widgets.base_widget import _rounded_rect
+from desktop_widgets.ui.drawing import recolor_shape
 from desktop_widgets.theme import PRESETS
 
 
@@ -28,7 +29,7 @@ def release_notes_view(parent, body, theme):
 
 
 def paint_shell(cv, width, height, theme, title, close, eyebrow='YOUR WORKSPACE'):
-    _rounded_rect(cv, 1, 1, width-1, height-1, 24, fill=theme.bg, outline=theme.border)
+    _rounded_rect(cv, 1, 1, width-1, height-1, 24, fill=theme.bg, outline=theme.border, hard=True)
     _rounded_rect(cv, 26, 27, 34, 35, 4, fill=theme.accent)
     cv.create_text(44, 31, text=eyebrow, anchor='w', fill=theme.txt2,
                    font=('Segoe UI', 9, 'bold'))
@@ -37,10 +38,15 @@ def paint_shell(cv, width, height, theme, title, close, eyebrow='YOUR WORKSPACE'
     close_shape = _rounded_rect(cv, width-66, 24, width-26, 64, 20,
                                 fill=theme.btn, outline=theme.border)
     cv.addtag_withtag('close', close_shape)
-    cv.create_text(width-46, 44, text='×', fill=theme.txt2, font=('Segoe UI', 15), tags='close')
+    close_x = cv.create_text(width-46, 44, text='×', fill=theme.txt2, font=('Segoe UI', 15), tags='close')
     cv.tag_bind('close', '<Button-1>', lambda e: close())
-    cv.tag_bind('close', '<Enter>', lambda e: cv.config(cursor='hand2'))
-    cv.tag_bind('close', '<Leave>', lambda e: cv.config(cursor=''))
+    # Recolour in place; never recreate items from <Enter>/<Leave>.
+    def hover(on):
+        cv.config(cursor='hand2' if on else '')
+        recolor_shape(cv, close_shape, theme.hov if on else theme.btn)
+        cv.itemconfigure(close_x, fill=theme.txt if on else theme.txt2)
+    cv.tag_bind('close', '<Enter>', lambda e: hover(True))
+    cv.tag_bind('close', '<Leave>', lambda e: hover(False))
 
 
 class RoundedButton(tk.Canvas):

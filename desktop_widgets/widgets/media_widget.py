@@ -296,7 +296,8 @@ def _render_media(w: int, h: int, tr: "_Track", t,
     md.rounded_rectangle((S,0,(w-1)*S-1,(h-1)*S-1), radius=radius, fill=255)
     md.rectangle((S,0,(w-1)*S-1,max(0,h*S-radius-2*S)), fill=255)
     img.putalpha(mask)
-    return img.resize((w,h), Image.Resampling.LANCZOS)
+    from desktop_widgets.ui.drawing import key_out
+    return key_out(img.resize((w,h), Image.Resampling.LANCZOS))
 
 def _wrap(text: str, font, max_px: int) -> list[str]:
     """Simple word-wrap for PIL text."""

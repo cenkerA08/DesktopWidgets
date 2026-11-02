@@ -67,6 +67,18 @@ class WidgetUiTests(unittest.TestCase):
         widget.redraw()
         self.assertTrue(widget.cv.find_all())
 
+    def test_focus_buttons_hover_without_redraw_loop(self):
+        # Redrawing a button from <Enter>/<Leave> used to loop until Tk crashed.
+        focus = FocusOverlay(self.mgr, self.data['groups'][0])
+        x, y, w, *_ = focus._buttons['next']
+        for dx in (5, 10, 15):
+            focus.cv.event_generate('<Motion>', x=x+dx, y=y+20, warp=True)
+            self.root.update()
+        self.assertEqual(focus._hovered_button, 'next')
+        focus._track_buttons(type('E', (), {'x': -1, 'y': -1}))
+        self.assertIsNone(focus._hovered_button)
+        focus.close()
+
     def test_focus_navigation_reuses_windows_and_closes_during_animation(self):
         focus = FocusOverlay(self.mgr, self.data['groups'][0])
         original_windows = tuple(self.root.winfo_children())

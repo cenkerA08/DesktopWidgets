@@ -428,10 +428,17 @@ def get_icon(path: str, size: int, icon_path: str | None = None) -> object | Non
             evict = list(_CACHE.keys())[:_CACHE_MAX // 4]
             for k in evict:
                 del _CACHE[k]
-        if icon_path and os.path.isfile(icon_path):
-            _CACHE[key] = _image_icon(icon_path, size) or _private_icon(icon_path, size)
+        from desktop_widgets.config import DATA_DIR
+        # Store-app icons we cached ourselves were saved from a 32px source;
+        # the live 256px system icon is sharper. Custom icons still win.
+        auto_cached = bool(icon_path) and os.path.normcase(os.path.dirname(icon_path)) == \
+            os.path.normcase(os.path.join(DATA_DIR, "icons"))
+        if auto_cached and path.lower().startswith("shell:appsfolder\\"):
+            _CACHE[key] = _shell_icon(path, size)
         else:
             _CACHE[key] = None
+        if _CACHE[key] is None and icon_path and os.path.isfile(icon_path):
+            _CACHE[key] = _image_icon(icon_path, size) or _private_icon(icon_path, size)
         if _CACHE[key] is None:
             _CACHE[key] = _extract(path, size)
     return _CACHE[key]
@@ -440,6 +447,8 @@ def clear_icon_cache(path: str) -> None:
     for k in list(_CACHE):
         if k[0] == path:
             del _CACHE[k]
+    from desktop_widgets.ui.tiles import clear_icon
+    clear_icon(path)
 
 def _extract(path: str, size: int):
     from desktop_widgets.config import URL_APPS
@@ -577,7 +586,7 @@ def _shell_icon(path: str, size: int):
         res = get_info(target, 0, ctypes.byref(fi), ctypes.sizeof(fi), flags)
         if not res or not fi.hIcon:
             return None
-        img = _hicon_to_pil(fi.hIcon, 64, size)
+        img = _jumbo_icon(fi.iIcon, size) or _hicon_to_pil(fi.hIcon, 64, size)
         return ImageTk.PhotoImage(img) if img else None
     except Exception:
         return None
@@ -599,6 +608,41 @@ def _shell_icon(path: str, size: int):
                 ole32.CoUninitialize()
             except Exception:
                 pass
+
+
+def _jumbo_icon(index: int, size: int):
+    """The 256px version of a system icon (Store apps, shortcuts) instead of 32px."""
+    try:
+        import ctypes, ctypes.wintypes
+        class GUID(ctypes.Structure):
+            _fields_ = [("a", ctypes.c_ulong), ("b", ctypes.c_ushort), ("c", ctypes.c_ushort),
+                        ("d", ctypes.c_ubyte * 8)]
+        # IID_IImageList {46EB5926-582E-4017-9FDF-E8998DAA0950}
+        iid = GUID(0x46EB5926, 0x582E, 0x4017, (ctypes.c_ubyte * 8)(0x9F, 0xDF, 0xE8, 0x99, 0x8D, 0xAA, 0x09, 0x50))
+        image_list = ctypes.c_void_p()
+        get_list = ctypes.windll.shell32.SHGetImageList
+        get_list.argtypes = [ctypes.c_int, ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)]
+        if get_list(4, ctypes.byref(iid), ctypes.byref(image_list)) != 0:   # SHIL_JUMBO
+            return None
+        get_icon_fn = ctypes.windll.comctl32.ImageList_GetIcon
+        get_icon_fn.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_uint]
+        get_icon_fn.restype = ctypes.wintypes.HICON
+        hicon = get_icon_fn(image_list, index, 0x1)   # ILD_TRANSPARENT
+        if not hicon:
+            return None
+        try:
+            img = _hicon_to_pil(hicon, 256, 256)
+        finally:
+            ctypes.windll.user32.DestroyIcon(ctypes.wintypes.HICON(hicon))
+        if img is None:
+            return None
+        box = img.getchannel("A").getbbox()
+        # Apps without a large icon come back as a small icon in a 256 frame.
+        if not box or max(box[2]-box[0], box[3]-box[1]) < 96:
+            return None
+        return img.resize((size, size), Image.LANCZOS)
+    except Exception:
+        return None
 
 
 def _folder_tile(path: str, size: int):
@@ -693,7 +737,9 @@ def _letter_tile(path: str, size: int):
     d.rounded_rectangle([0, 0, size-1, size-1], radius=max(6, size // 5), fill=color)
     d.text((size//2, size//2), name[0].upper() if name else "?",
            fill="white", anchor="mm")
-    return ImageTk.PhotoImage(img)
+    photo = ImageTk.PhotoImage(img)
+    photo._letter_tile = True   # app tiles replace this with a nicer letter icon
+    return photo
 
 # ── App launching ──────────────────────────────────────────
 def launch_app(path: str) -> None:
