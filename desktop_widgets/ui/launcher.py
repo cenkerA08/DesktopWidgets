@@ -215,7 +215,7 @@ class Launcher:
             else:
                 rounded_rect(cv, cx - 16, cy - 16, cx + 16, cy + 16, 6, fill=mix(t.bg, t.accent, 0.16))
                 glyph = {"layout": "desktop",
-                         "command": {"settings": "settings", "organize": "sparkle"}.get(item.get("command"), "add")
+                         "command": {"settings": "settings", "organize": "sparkle", "arrange": "sparkle"}.get(item.get("command"), "add")
                          }.get(item["kind"], "apps")
                 cv.create_text(cx, cy, text=th.ICON[glyph], fill=t.accent, font=(th.ICON_FONT, -16))
             cv.create_text(66, cy - 9, text=item["name"], anchor="w", fill=t.txt, font=TYPE["strong"])
@@ -240,6 +240,8 @@ class Launcher:
                 mgr.open_settings()
             elif item["command"] == "organize":
                 mgr.open_organizer()
+            elif item["command"] == "arrange":
+                mgr.open_arranger()
             else:
                 mgr.show_add_picker()
         elif item["kind"] == "file":

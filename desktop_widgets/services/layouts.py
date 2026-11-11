@@ -25,9 +25,9 @@ def snapshot(data: dict, name: str) -> dict:
         "saved": time.time(),
         "theme_preset": data.get("theme_preset"),
         "theme": copy.deepcopy(data.get("theme")),
-        "groups": {str(g["id"]): place(g) for g in data.get("groups", [])},
-        "stacks": {str(s["id"]): place(s, "active") for s in data.get("stacks", [])},
-        "docs": {str(b["id"]): place(b) for b in data.get("docs_widgets", [])},
+        "groups": {str(g["id"]): place(g, "cols") for g in data.get("groups", [])},
+        "stacks": {str(s["id"]): place(s, "active", "cols") for s in data.get("stacks", [])},
+        "docs": {str(b["id"]): place(b, "cols") for b in data.get("docs_widgets", [])},
         "single": {key: {"enabled": bool(data.get(key, {}).get("enabled")),
                          **place(data.get(key, {}), "w", "h")} for key in SINGLES},
     }

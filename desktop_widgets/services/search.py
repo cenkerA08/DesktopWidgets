@@ -60,7 +60,8 @@ def collect(data: dict, installed: list | None = None) -> list[dict]:
                       "path": "", "layout": layout["name"]})
     for name, sub, command in (("Settings", "Open Settings", "settings"),
                                ("Add a widget", "Folders, stacks, notes, stats and more", "add_widget"),
-                               ("Organize folders", "Sort apps into fitting folders and clean up", "organize")):
+                               ("Organize folders", "Sort apps into fitting folders and clean up", "organize"),
+                               ("Auto arrange", "Tidy up or rearrange your widgets", "arrange")):
         items.append({"kind": "command", "name": name, "sub": sub, "path": "", "command": command})
     return items
 

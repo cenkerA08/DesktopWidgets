@@ -828,8 +828,13 @@ class Manager:
         layout = layouts.find(self.data, name)
         if not layout:
             return
-        layouts.apply_to_data(self.data, layout)
         self.data["active_layout"] = layout["name"]
+        self._apply_snapshot(layout)
+
+    def _apply_snapshot(self, layout: dict, animate: bool = False) -> None:
+        """Put the data and every widget into the state a layout snapshot describes."""
+        from desktop_widgets.services import layouts
+        layouts.apply_to_data(self.data, layout)
         if self.data.get("theme_preset") == "Wallpaper":     # today's wallpaper, not the saved one
             from desktop_widgets.services import wallpaper
             live = wallpaper.theme()
@@ -855,11 +860,94 @@ class Manager:
             widget = getattr(self, f"{key}_win")
             if widget:
                 blocks[widget] = self.data[key]
+        moves = []
         for widget, blk in blocks.items():
             widget._collapsed = bool(blk.get("collapsed"))
+            start = (widget._win_x(), widget._win_y())
             widget.restore_home()
+            moves.append((widget, start))
+        if animate:
+            self._glide(moves)
         config.save(self.data)
         self.apply_theme()
+
+    def _glide(self, moves: list) -> None:
+        """Slide windows from their old spot to the one they now have."""
+        steps = 12
+        targets = [(w, sx, sy, w._win_x(), w._win_y()) for w, (sx, sy) in moves]
+        for w, sx, sy, tx, ty in targets:
+            w.win.geometry(f"+{sx}+{sy}")
+        def frame(i=1):
+            k = 1 - (1 - i / steps) ** 3           # ease out
+            for w, sx, sy, tx, ty in targets:
+                try:
+                    w.win.geometry(f"+{round(sx + (tx - sx) * k)}+{round(sy + (ty - sy) * k)}")
+                except tk.TclError:
+                    pass
+            if i < steps:
+                self.root.after(16, lambda: frame(i + 1))
+        frame()
+
+    # ── Auto arrange ───────────────────────────────────────
+
+    def _arrange_inputs(self):
+        """Every widget with its data block, grouped by the monitor it is on."""
+        from desktop_widgets.services.screens import area_for
+        blocks = {}
+        for gw in self.wins.values():
+            blocks[gw] = gw.group
+        for sw in self.stack_wins.values():
+            blocks[sw] = sw.stack
+        for dw in self.docs_wins.values():
+            blocks[dw] = dw._blk
+        for key in ("statsplus", "media", "notes"):
+            widget = getattr(self, f"{key}_win")
+            if widget:
+                blocks[widget] = self.data[key]
+        by_area: dict = {}
+        for widget in blocks:
+            by_area.setdefault(area_for(self.root, *widget.rect()), []).append(widget)
+        return blocks, by_area
+
+    def plan_arrangement(self, style: str, inputs=None) -> dict:
+        """{widget: placement} for every widget, monitor by monitor. Sizes are kept."""
+        from desktop_widgets.services import arrange
+        _, by_area = inputs or self._arrange_inputs()
+        spots = {}
+        for area, widgets in by_area.items():
+            keys = {id(w): w for w in widgets}
+            boxes = [{"key": id(w), "x": w._win_x(), "y": w._win_y(), "w": w.W, "h": w.H} for w in widgets]
+            for key, spot in arrange.plan_style(style, area, boxes).items():
+                spots[keys[key]] = spot
+        return spots
+
+    def auto_arrange(self, style: str = "tidy", keep_undo: bool = False) -> None:
+        """Move every widget into `style`. The arrangement before is kept in
+        data["arrange_undo"] (unless one is being kept already, while trying
+        styles in the picker) so it can be put back."""
+        from desktop_widgets.services import layouts
+        if not (keep_undo and self.data.get("arrange_undo")):
+            self.data["arrange_undo"] = layouts.snapshot(self.data, "Before auto arrange")
+        blocks = self._arrange_inputs()[0]
+        moves = []
+        for widget, spot in self.plan_arrangement(style).items():
+            blk = blocks[widget]
+            blk["x"], blk["y"] = spot["x"], spot["y"]
+            start = (widget._win_x(), widget._win_y())
+            widget.restore_home()
+            moves.append((widget, start))
+        self.data["arrange_style"] = style
+        self._glide(moves)
+        config.save(self.data)
+
+    def open_arranger(self) -> None:
+        from desktop_widgets.ui.arrange_screen import ArrangeScreen
+        ArrangeScreen(self)
+
+    def undo_auto_arrange(self) -> None:
+        snap = self.data.pop("arrange_undo", None)
+        if snap:
+            self._apply_snapshot(snap, animate=True)
 
     def delete_layout(self, name: str) -> None:
         self.data["layouts"] = [l for l in self.data.get("layouts", []) if l["name"] != name]
@@ -889,6 +977,10 @@ class Manager:
                           command=lambda n=layout["name"]: self.apply_layout(n))
         if self.data.get("layouts"):
             m.add_separator()
+        m.add_command(label="\u2728  Auto arrange\u2026", command=self.open_arranger)
+        if self.data.get("arrange_undo"):
+            m.add_command(label="Undo auto arrange", command=self.undo_auto_arrange)
+        m.add_separator()
         m.add_command(label="\u2795  Save current layout\u2026", command=self.save_layout_dialog)
         m.add_command(label="\u2699  Manage layouts", command=lambda: self.open_settings("widgets"))
         m.tk_popup(x, y)

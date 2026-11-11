@@ -346,6 +346,18 @@ class SettingsScreen:
                                               lambda: (self.close(), self.mgr.show_add_picker()),
                                               t, accent=True, icon='add'))
         self._divider(p, t)
+        def arrange_controls(parent):
+            frame = tk.Frame(parent, bg=t.bg)
+            if self.mgr.data.get("arrange_undo"):
+                _outline_btn(frame, "Undo", lambda: (self.mgr.undo_auto_arrange(), self._rebuild()), t
+                             ).pack(side="left", padx=(0, 8))
+            _btn(frame, "Auto arrange", lambda: (self.close(), self.mgr.open_arranger()), t,
+                 accent=True, icon="sparkle").pack(side="left")
+            return frame
+        self._setting_row(p, t, "Auto arrange",
+                          "Pick a style and see it on your desktop: tidy up your own layout, "
+                          "spread over both sides, one neat block, or a dock along the bottom.", arrange_controls)
+        self._divider(p, t)
         undo = self.mgr.data.get("organize_undo")
         def organize_controls(parent):
             frame = tk.Frame(parent, bg=t.bg)
