@@ -15,7 +15,7 @@ class MediaDesignTests(unittest.TestCase):
         track.title = 'A very long track title without enough room in a small card'
         track.artist = 'An artist with an unusually long name'
         track.art_img = Image.new('RGB', (400, 100), '#407080')
-        for theme in (PRESETS['Graphite'], PRESETS['Porcelain']):
+        for theme in (PRESETS['Dark'], PRESETS['Light']):
             image = _render_media(W_FIXED, FIXED_H-HDR_H, track, theme, 16)
             self.assertEqual(image.size, (W_FIXED, FIXED_H-HDR_H))
             self.assertEqual(image.getpixel((0, image.height-1))[:3], (1, 2, 3))   # keyed out

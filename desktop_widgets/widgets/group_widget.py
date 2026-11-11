@@ -74,7 +74,7 @@ def _recycle(path: str) -> None:
 
 class GroupWidget(BaseWidget):
     MIN_W = 80
-    MIN_H = HDR_H + _th.CELL_H + _th.PAD * 2
+    MIN_H = HDR_H + _th.CELL_H + _th.PAD
 
     def __init__(self, mgr: "Manager", group: dict) -> None:
         self.group = group
@@ -113,10 +113,15 @@ class GroupWidget(BaseWidget):
         return self.cols * _th.CELL_W + _th.PAD * 2
 
     @property
+    def body_top(self) -> int:
+        """Where the tiles start (below the header; a stack adds its tabs)."""
+        return HDR_H
+
+    @property
     def _natural_h(self) -> int:
         n = len(self.group["apps"])
         rows = max(1, -(-n // self.cols))
-        return HDR_H + rows * _th.CELL_H + _th.PAD * 2
+        return self.body_top + rows * _th.CELL_H + _th.PAD
 
     def place(self, x, y, collapsed=False, **_):
         super().place(x, y, w=self._natural_w, h=self._natural_h, collapsed=collapsed)
@@ -131,6 +136,9 @@ class GroupWidget(BaseWidget):
         self.cv.config(width=self.W, height=self.H)
         if self.H != old_h:
             self.mgr.reflow_after_resize(self, old_h, self.H)
+
+    def _home_block(self):
+        return self.group
 
     # ── Theme ──────────────────────────────────────────────
 
@@ -147,10 +155,7 @@ class GroupWidget(BaseWidget):
         gid  = self.group["id"]
 
         # ── Header ────────────────────────────────────────
-        count = len(apps)
-        self.paint_header(self.group["name"],
-                          meta=f"{count} app{'s' if count != 1 else ''}" if count else "",
-                          action=True)
+        self._draw_header(t)
         self._spots.append({
             "x1": ww - HDR_H, "y1": 0, "x2": ww, "y2": HDR_H,
             "click": lambda: self.mgr.add_app(gid),
@@ -162,7 +167,8 @@ class GroupWidget(BaseWidget):
         # ── Empty hint ────────────────────────────────────
         if not apps:
             self.paint_empty("folder", "No apps yet",
-                             "Press + or drop shortcuts here" if DND_OK else "Press + to add apps")
+                             "Press + or drop shortcuts here" if DND_OK else "Press + to add apps",
+                             top=self.body_top)
             return
 
         # ── Tile layout ───────────────────────────────────
@@ -172,11 +178,12 @@ class GroupWidget(BaseWidget):
         tile_w, tile_h = cell_w - TILE_GAP, cell_h - TILE_GAP
         icon_sz = min(_th.ICON_SZ, tile_h - 32)
 
-        for i in self.tile_range(len(apps), cols, cell_h, _th.PAD):
+        top, slide = self.body_top, getattr(self, "_slide", 0)
+        for i in self.tile_range(len(apps), cols, cell_h, _th.PAD, top=top):
             app = apps[i]
             col = i % cols; row = i // cols - self._row_offset
-            ax  = _th.PAD + col * cell_w
-            ay  = HDR_H + _th.PAD + row * cell_h
+            ax  = _th.PAD + col * cell_w + slide
+            ay  = top + row * cell_h
             cx  = ax + cell_w // 2
             is_hov  = (i == self._hov and self._drag_idx is None)
             is_drag = (i == self._drag_idx)
@@ -187,7 +194,7 @@ class GroupWidget(BaseWidget):
 
             if PIL_OK:
                 photo = tile_photo(self.cv, app, t, tile_w, tile_h, icon_sz,
-                                   TILE_PAD + 1 + icon_sz // 2, state, TILE_R,
+                                   TILE_PAD + 2 + icon_sz // 2, state, TILE_R,
                                    tint=icon_color(app, t.accent), transparent=True)
                 self._refs.append(photo)
                 self.cv.create_image(ax + TILE_GAP//2, ay + TILE_GAP//2,
@@ -199,7 +206,7 @@ class GroupWidget(BaseWidget):
 
             # Label: trimmed to the tile's real width, brighter on hover
             label_font = _th.TYPE["caption"]
-            self.cv.create_text(cx, ay + cell_h - 15,
+            self.cv.create_text(cx, ay + cell_h - 17,
                 text=fit_label(self.cv, app["name"], label_font, tile_w - 12),
                 font=label_font, fill=t.txt if is_hov else t.txt3,
                 anchor="center")
@@ -207,7 +214,7 @@ class GroupWidget(BaseWidget):
             p, n = app["path"], app["name"]
             self._spots.append({
                 "x1": ax, "y1": ay, "x2": ax+cell_w, "y2": ay+cell_h, "idx": i,
-                "dbl":   lambda pa=p: launch_app(pa),
+                "dbl":   lambda pa=p: self.mgr.launch(pa),
                 "right": lambda pa=p, na=n, ga=gid: self.mgr.app_ctx(pa, na, ga),
             })
 
@@ -216,11 +223,15 @@ class GroupWidget(BaseWidget):
             apps_list = self.group["apps"]
             if self._drag_idx < len(apps_list):
                 dname = clip(apps_list[self._drag_idx]["name"], 14)
-                self.cv.create_rectangle(0, self.H-20, self.W, self.H,
-                    fill=t.hov, outline="")
-                self.cv.create_text(self.W//2, self.H-10,
-                    text=f"↗  Dragging '{dname}' out …",
-                    font=("Segoe UI", 7), fill=t.txt2, anchor="center")
+                self.cv.create_text(self.W//2, self.H-9,
+                    text=f"Drop '{dname}' on another folder or the desktop",
+                    font=_th.TYPE["caption"], fill=t.txt2, anchor="center")
+
+    def _draw_header(self, t) -> None:
+        count = len(self.group["apps"])
+        self.paint_header(self.group["name"],
+                          meta=f"{count} app{'s' if count != 1 else ''}" if count else "",
+                          action=True)
 
     # ── Hit testing ────────────────────────────────────────
 
@@ -334,7 +345,6 @@ class GroupWidget(BaseWidget):
             pass
         h = self._hit(e.x, e.y)
         if h and "dbl" in h: h["dbl"]()
-        elif e.y <= HDR_H: self.mgr.open_focus(self.group)
 
     # ── Right-click ────────────────────────────────────────
 

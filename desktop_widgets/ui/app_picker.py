@@ -8,7 +8,8 @@ from desktop_widgets.utils import clip
 from desktop_widgets.ui.components import RoundedButton, paint_shell
 from desktop_widgets.ui.tiles import tile_photo, icon_image, icon_color, fit_label
 from desktop_widgets.ui.drawing import rounded_rect
-from desktop_widgets.theme import CHROMA, TYPE, R_TILE
+from desktop_widgets.theme import CHROMA, TYPE, R_TILE, R_CTRL
+from desktop_widgets import theme as th
 from desktop_widgets import config
 
 try:
@@ -80,26 +81,30 @@ class AppPicker:
 
         self.shell = cv = tk.Canvas(self.win, bg=CHROMA, highlightthickness=0)
         cv.pack(fill='both', expand=True)
-        eyebrow = f'ADD TO {group_name.upper()}' if group_name else 'ADD TO YOUR DESKTOP'
-        paint_shell(cv, width, height, t, 'Apps and games', self.close, eyebrow,
-                    glows=[(t.accent, 0.15), (t.up_col, 0.9)])
+        eyebrow = f'Add to {group_name}' if group_name else 'Add to your desktop'
+        paint_shell(cv, width, height, t, 'Apps and games', self.close, eyebrow)
         self._drag_window(cv)
 
         # Search field: a rounded canvas pill with a borderless Entry inside.
         sy = 92
-        rounded_rect(cv, SIDE, sy, width-SIDE, sy+44, 14, fill=t.btn, outline=t.border)
-        cv.create_text(SIDE+20, sy+22, text='⌕', fill=t.txt2, font=(TYPE['body'][0], 15))
+        rounded_rect(cv, SIDE, sy, width-SIDE, sy+40, R_CTRL, fill=t.btn, outline=t.border)
+        self._search_line = cv.create_line(SIDE+R_CTRL, sy+39, width-SIDE-R_CTRL, sy+39,
+                                           fill=t.accent, width=2, state='hidden')
+        cv.create_text(width-SIDE-20, sy+20, text=th.ICON['search'], fill=t.txt2,
+                       font=(th.ICON_FONT, -14))
         self.query = tk.StringVar()
         self.search = tk.Entry(cv, textvariable=self.query, bg=t.btn, fg=t.txt,
-                               insertbackground=t.txt, font=(TYPE['body'][0], 11),
+                               insertbackground=t.txt, font=TYPE['body'],
                                relief='flat', highlightthickness=0, borderwidth=0)
-        cv.create_window(SIDE+38, sy+22, window=self.search, anchor='w',
-                         width=width-2*SIDE-54, height=28)
+        cv.create_window(SIDE+14, sy+20, window=self.search, anchor='w',
+                         width=width-2*SIDE-54, height=26)
         self.placeholder = tk.Label(cv, text='Search apps and games', bg=t.btn, fg=t.txt2,
-                                    font=(TYPE['body'][0], 11), cursor='xterm')
+                                    font=TYPE['body'], cursor='xterm')
         self.placeholder.bind('<Button-1>', lambda e: self.search.focus_set())
-        self._placeholder_item = cv.create_window(SIDE+38, sy+22, window=self.placeholder,
+        self._placeholder_item = cv.create_window(SIDE+14, sy+20, window=self.placeholder,
                                                   anchor='w')
+        self.search.bind('<FocusIn>', lambda e: cv.itemconfigure(self._search_line, state='normal'))
+        self.search.bind('<FocusOut>', lambda e: cv.itemconfigure(self._search_line, state='hidden'))
         self.query.trace_add('write', lambda *_: self.filter())
         self.search.bind('<Return>', lambda e: self.add_selected())
         self.search.bind('<Down>', lambda e: self.grid.focus_set())
@@ -109,9 +114,10 @@ class AppPicker:
         tx = SIDE
         for key, label in (('all', 'All apps'), ('games', 'Games')):
             button = RoundedButton(cv, label, lambda k=key: self.set_tab(k), t,
-                                   accent=key == self.tab, font=TYPE['label'], padx=16, pady=6)
+                                   accent=key == self.tab, font=TYPE['label'], padx=14, pady=5,
+                                   pill=True)
             button.configure(bg=t.bg)          # the shell canvas itself is see-through
-            cv.create_window(tx, 152, window=button, anchor='nw')
+            cv.create_window(tx, 148, window=button, anchor='nw')
             tx += int(button.cget('width')) + 8
             self._tab_buttons[key] = button
 
@@ -128,7 +134,7 @@ class AppPicker:
 
         # Footer
         fy = height - FOOTER_H + 20
-        cv.create_line(SIDE, fy-12, width-SIDE, fy-12, fill=t.border)
+        cv.create_line(1, fy-12, width-1, fy-12, fill=t.border)
         self.status = tk.Label(cv, text='Loading installed apps…', bg=t.bg, fg=t.txt2,
                                font=TYPE['caption'], anchor='w')
         cv.create_window(SIDE, fy+18, window=self.status, anchor='w')
@@ -249,27 +255,23 @@ class AppPicker:
         return ('selected_hover' if hover else 'selected') if chosen else ('hover' if hover else 'idle')
 
     def _draw_tile(self, i, hover=False):
-        """Same tiles as the folders and focus view; placeholder until the icon loads."""
+        """Same tiles as the folders and app picker; placeholder until the icon loads."""
         g, t, entry = self.grid, self.t, self.visible[i]
         tag = f'tile{i}'
         g.delete(tag)
         x, y = self._tile_xy(i)
         before = set(g.find_all())
         if entry['path'] in self._icons:
-            photo = tile_photo(g, entry, t, TILE_W, TILE_H, ICON, 14 + ICON//2,
+            photo = tile_photo(g, entry, t, TILE_W, TILE_H, ICON, 16 + ICON//2,
                                self._state(i, hover), R_TILE, tint=icon_color(entry, t.accent))
             image = g.create_image(x, y, image=photo, anchor='nw')
             self._shown[i] = photo
         else:
-            image = rounded_rect(g, x, y, x+TILE_W, y+TILE_H, R_TILE, fill=t.btn, outline=t.border)
-            rounded_rect(g, x+(TILE_W-ICON)//2, y+14, x+(TILE_W+ICON)//2, y+14+ICON, 10, fill=t.btn_h)
+            image = rounded_rect(g, x, y, x+TILE_W, y+TILE_H, R_TILE, fill=t.bg)
+            rounded_rect(g, x+(TILE_W-ICON)//2, y+16, x+(TILE_W+ICON)//2, y+16+ICON, 8, fill=t.btn)
         label = g.create_text(x+TILE_W//2, y+66,
                               text=fit_label(g, entry['name'], TYPE['caption'], TILE_W-14),
                               fill=t.txt if hover else t.txt3, font=TYPE['caption'], anchor='n')
-        if entry['path'] in self.selected:
-            cx, cy = x+TILE_W-15, y+15
-            g.create_oval(cx-9, cy-9, cx+9, cy+9, fill=t.accent, outline='')
-            g.create_text(cx, cy, text='\u2713', fill=t.bg, font=TYPE['meta'])
         for item in set(g.find_all()) - before:
             g.addtag_withtag(tag, item)
         self._tiles[i] = (image, label)
@@ -287,7 +289,7 @@ class AppPicker:
         image, label = self._tiles[i]
         self.grid.itemconfigure(label, fill=self.t.txt if on else self.t.txt3)
         if entry['path'] in self._icons:
-            photo = tile_photo(self.grid, entry, self.t, TILE_W, TILE_H, ICON, 14 + ICON//2,
+            photo = tile_photo(self.grid, entry, self.t, TILE_W, TILE_H, ICON, 16 + ICON//2,
                                self._state(i, on), R_TILE, tint=icon_color(entry, self.t.accent))
             self._shown[i] = photo
             self.grid.itemconfigure(image, image=photo)

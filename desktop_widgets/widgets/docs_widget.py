@@ -44,7 +44,7 @@ MAX_COLS = 8
 
 class DocsWidget(BaseWidget):
     MIN_W = CELL_W + PAD * 2
-    MIN_H = HDR_H + CELL_H + PAD * 2
+    MIN_H = HDR_H + CELL_H + PAD
     MAX_W = CELL_W * 8 + PAD * 2
     MAX_H = 700
 
@@ -87,7 +87,7 @@ class DocsWidget(BaseWidget):
     def _natural_h(self) -> int:
         n = max(len(self._blk.get("files", [])), 1)
         rows = max(1, -(-n // self.cols))
-        return HDR_H + rows * CELL_H + PAD * 2
+        return HDR_H + rows * CELL_H + PAD
 
     def place(self, x, y, collapsed=False, **_):
         super().place(x, y, w=self._natural_w, h=self._natural_h, collapsed=collapsed)
@@ -102,6 +102,9 @@ class DocsWidget(BaseWidget):
         self.cv.config(width=self.W, height=self.H)
         if self.H != old_h:
             self.mgr.reflow_after_resize(self, old_h, self.H)
+
+    def _home_block(self):
+        return self._blk
 
     def _theme(self):
         return config.get_theme(self.mgr.data,
@@ -136,21 +139,21 @@ class DocsWidget(BaseWidget):
         for i in self.tile_range(len(files), cols, CELL_H, PAD):
             f = files[i]
             col = i % cols; row = i // cols - self._row_offset
-            ax  = PAD + col * CELL_W; ay = HDR_H + PAD + row * CELL_H
+            ax  = PAD + col * CELL_W; ay = HDR_H + row * CELL_H
             cx  = ax + CELL_W // 2
 
             hov = i == self._hov
-            # Same tiles as the app folders and the focus view.
+            # Same tiles as the app folders.
             tile_w, tile_h = CELL_W - 4, CELL_H - 4
             icon_sz = min(_th.ICON_SZ, tile_h - 32)
-            photo = tile_photo(self.cv, f, t, tile_w, tile_h, icon_sz, 7 + icon_sz // 2,
+            photo = tile_photo(self.cv, f, t, tile_w, tile_h, icon_sz, 8 + icon_sz // 2,
                                "hover" if hov else "idle", R_TILE,
                                tint=icon_color(f, t.accent), transparent=True)
             self._refs.append(photo)
             self.cv.create_image(ax + 2, ay + 2, image=photo, anchor="nw")
 
             label_font = _th.TYPE["caption"]
-            self.cv.create_text(cx, ay + CELL_H - 15,
+            self.cv.create_text(cx, ay + CELL_H - 17,
                 text=fit_label(self.cv, f["name"], label_font, tile_w - 12),
                 font=label_font, fill=t.txt if hov else t.txt3, anchor="center")
 
@@ -238,6 +241,9 @@ class DocsWidget(BaseWidget):
             return
         try:
             os.startfile(path)
+            from desktop_widgets.services.search import record_launch
+            record_launch(self.mgr.data, path)
+            config.save(self.mgr.data)
         except Exception as ex:
             tk.messagebox.showerror("Error", str(ex))
 

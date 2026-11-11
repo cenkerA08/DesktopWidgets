@@ -1,6 +1,9 @@
 """
 theme.py — Single source of truth for all colors, fonts, and layout sizes.
 Everything else imports from here. Change a value here, it changes everywhere.
+
+The look follows Windows 11 (Fluent): neutral layered surfaces, hairline
+borders, one accent colour, Segoe UI Variable type and Segoe Fluent Icons.
 """
 from __future__ import annotations
 from dataclasses import dataclass, asdict
@@ -9,64 +12,153 @@ CHROMA = "#010203"
 
 SNAP        = 10
 MARGIN      = 10
-HDR_H       = 44
+HDR_H       = 40
 RSZ         = 14
 CELL_W      = 88
 CELL_H      = 90
-PAD         = 18
+PAD         = 14
 MIN_COLS    = 1
 MAX_COLS    = 12
-ICON_SZ     = 52
+ICON_SZ     = 48
 ICON_NAT    = 256
 COLLAPSE_BTN_W = 28
 
-_CELL_SIZES = {"compact": (72, 74, 10), "normal": (88, 90, 18), "spacious": (104, 108, 18)}
+_CELL_SIZES = {"compact": (72, 76, 8), "normal": (88, 90, 14), "spacious": (104, 108, 16)}
 
 
 def apply_sizes(data: dict) -> None:
     """Apply the saved icon/tile size settings; tiles always fit their icon."""
     global ICON_SZ, CELL_W, CELL_H, PAD
-    ICON_SZ = int(data.get("icon_size", 52))
+    ICON_SZ = int(data.get("icon_size", 48))
     CELL_W, CELL_H, PAD = _CELL_SIZES.get(data.get("cell_size", "normal"), _CELL_SIZES["normal"])
     CELL_W = max(CELL_W, ICON_SZ + 32)
     CELL_H = max(CELL_H, ICON_SZ + 36)
 
 
-# ── Type scale and shape tokens (modelled on the media widget) ─────────────
+# ── Type ramp (Windows 11) ─────────────────────────────────
+# Families are resolved against what is installed in init_fonts(): Segoe UI
+# Variable on Windows 11, plain Segoe UI on Windows 10.
 FONT = "Segoe UI"
+FONT_SEMI = "Segoe UI Semibold"
+FONT_DISPLAY = "Segoe UI Semibold"
+ICON_FONT = "Segoe MDL2 Assets"
+
 TYPE = {
-    "display": (FONT, 21, "bold"),   # screen titles
-    "title":   (FONT, 15, "bold"),   # card titles inside screens
-    "header":  (FONT, 10, "bold"),   # widget header title
+    "display": (FONT_DISPLAY, 20),   # screen titles
+    "title":   (FONT_SEMI, 13),      # card titles inside screens
+    "subtitle": (FONT_SEMI, 11),     # group headings in settings
+    "header":  (FONT_SEMI, 10),      # widget header title
     "body":    (FONT, 10),
-    "label":   (FONT, 9, "bold"),    # small capitalised eyebrows
+    "strong":  (FONT_SEMI, 10),
+    "label":   (FONT, 9),            # small button text
     "caption": (FONT, 9),
-    "meta":    (FONT, 8, "bold"),    # header status (PLAYING, 7 APPS)
+    "meta":    (FONT, 9),            # header status (Live, 7 apps)
 }
-R_PANEL = 16     # inset panels inside a widget (media artwork card)
-R_TILE  = 12     # app / file / stat tiles
-INSET   = 12     # gap between widget edge and its inset panel
-ACTION_R = 13    # round header button radius
+
+# PIL font files for images rendered off-screen (stats, media, focus hero).
+PIL_FONT = "segoeui.ttf"
+PIL_SEMI = "seguisb.ttf"
+PIL_ICONS = "segmdl2.ttf"
+
+R_WIN   = 8      # screens, dialogs, menus
+R_PANEL = 8      # cards inside a widget or screen
+R_TILE  = 6      # app / file tiles
+R_CTRL  = 5      # buttons, inputs
+INSET   = 10     # gap between widget edge and its inset panel
+ACTION_R = 14    # header button half-size
+
+# Segoe Fluent Icons / MDL2 code points (same in both fonts).
+ICON = {
+    "add": "\uE710", "settings": "\uE713", "close": "\uE8BB", "search": "\uE721",
+    "chevron_down": "\uE70D", "chevron_up": "\uE70E", "chevron_right": "\uE76C",
+    "chevron_left": "\uE76B", "check": "\uE73E", "play": "\uE768", "pause": "\uE769",
+    "prev": "\uE892", "next": "\uE893", "edit": "\uE70F", "delete": "\uE74D",
+    "folder": "\uE8B7", "document": "\uE8A5", "note": "\uE70B", "stats": "\uE9D9",
+    "music": "\uEC4F", "open": "\uE8A7", "power": "\uE7E8", "clear": "\uE894",
+    "desktop": "\uE7F4", "picture": "\uE8B9", "remove": "\uE738", "rename": "\uE8AC",
+    "palette": "\uE790", "apps": "\uE71D", "info": "\uE946", "sync": "\uE895",
+    "heart": "\uEB51", "emoji": "\uE76E", "game": "\uE7FC", "link": "\uE71B",
+    "focus": "\uE740", "grip": "\uE784", "copy": "\uE8C8", "stack": "\uE8F1", "sparkle": "\uE945",
+}
+
+
+def icon_font(size: int) -> tuple:
+    return (ICON_FONT, size)
+
+
+_fonts_ready = False
+
+
+def init_fonts(root) -> None:
+    """Pick the best installed families once a Tk root exists."""
+    global FONT, FONT_SEMI, FONT_DISPLAY, ICON_FONT, PIL_ICONS, _fonts_ready
+    if _fonts_ready:
+        return
+    try:
+        import tkinter.font as tkfont
+        families = set(tkfont.families(root))
+    except Exception:
+        return
+    def pick(*names):
+        return next((n for n in names if n in families), names[-1])
+    FONT = pick("Segoe UI Variable Text", "Segoe UI")
+    FONT_SEMI = pick("Segoe UI Variable Text Semibold", "Segoe UI Semibold")
+    FONT_DISPLAY = pick("Segoe UI Variable Display Semib", "Segoe UI Variable Display Semibold",
+                        "Segoe UI Semibold")
+    ICON_FONT = pick("Segoe Fluent Icons", "Segoe MDL2 Assets")
+    import os
+    fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    if os.path.exists(os.path.join(fonts, "SegoeIcons.ttf")):
+        PIL_ICONS = "SegoeIcons.ttf"
+    TYPE.update({
+        "display": (FONT_DISPLAY, 20), "title": (FONT_SEMI, 13), "subtitle": (FONT_SEMI, 11),
+        "header": (FONT_SEMI, 10), "body": (FONT, 10), "strong": (FONT_SEMI, 10),
+        "label": (FONT, 9), "caption": (FONT, 9), "meta": (FONT, 9),
+    })
+    _fonts_ready = True
+
+
+def on_color(color: str) -> str:
+    """Readable text colour on a filled accent surface."""
+    c = color.lstrip("#")
+    r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+    return "#000000" if (r*299 + g*587 + b*114) / 1000 > 150 else "#ffffff"
+
+
+def mix(a: str, b: str, amount: float) -> str:
+    """Blend two hex colours; amount 0 → a, 1 → b."""
+    a, b = a.lstrip("#"), b.lstrip("#")
+    out = []
+    for i in (0, 2, 4):
+        x, y = int(a[i:i+2], 16), int(b[i:i+2], 16)
+        out.append(round(x + (y - x) * amount))
+    return "#%02x%02x%02x" % tuple(out)
+
+
+def is_light(t) -> bool:
+    c = t.bg.lstrip("#")
+    return (int(c[0:2], 16)*299 + int(c[2:4], 16)*587 + int(c[4:6], 16)*114) / 1000 > 128
 
 
 @dataclass
 class Theme:
-    bg:       str = "#181b24"
-    hdr:      str = "#181b24"
-    border:   str = "#343949"
-    hov:      str = "#30394f"
-    btn:      str = "#222735"
-    btn_h:    str = "#2c3345"
-    txt:      str = "#f3f5fc"
-    txt2:     str = "#a5aec2"
-    txt3:     str = "#c8ccd6"
-    accent:   str = "#a6b4ff"
-    ok:       str = "#5b7cf8"
-    warn:     str = "#e0a050"
-    danger:   str = "#e05c5c"
-    up_col:   str = "#5bc8f5"
-    dn_col:   str = "#58d68d"
-    stat_font: str = "Consolas"
+    # Surfaces: bg is the window/widget (Mica), btn the card/control layer on it.
+    bg:       str = "#202020"
+    hdr:      str = "#202020"
+    border:   str = "#333333"
+    hov:      str = "#2d2d2d"
+    btn:      str = "#2b2b2b"
+    btn_h:    str = "#323232"
+    txt:      str = "#ffffff"
+    txt2:     str = "#a8a8a8"
+    txt3:     str = "#d4d4d4"
+    accent:   str = "#60cdff"
+    ok:       str = "#6ccb5f"
+    warn:     str = "#fce100"
+    danger:   str = "#ff99a4"
+    up_col:   str = "#60cdff"
+    dn_col:   str = "#6ccb5f"
+    stat_font: str = "Segoe UI"
 
     def copy(self) -> "Theme":
         return Theme(**asdict(self))
@@ -83,263 +175,59 @@ class Theme:
         return t
 
 
+def _dark(bg, layer, accent, **kw):
+    """A dark theme from its two surface colours and accent; the rest follows."""
+    base = dict(bg=bg, hdr=bg, btn=layer, border=mix(layer, "#ffffff", 0.07),
+                hov=mix(bg, "#ffffff", 0.05), btn_h=mix(layer, "#ffffff", 0.05),
+                txt="#ffffff", txt2="#a8a8a8", txt3="#d4d4d4",
+                accent=accent, ok="#6ccb5f", warn="#fce100", danger="#ff99a4",
+                up_col=accent, dn_col="#6ccb5f")
+    base.update(kw)
+    return Theme(**base)
+
+
+def _light(bg, layer, accent, **kw):
+    base = dict(bg=bg, hdr=bg, btn=layer, border=mix(bg, "#000000", 0.09),
+                hov=mix(bg, "#000000", 0.04), btn_h=mix(layer, "#000000", 0.03),
+                txt="#1b1b1b", txt2="#5f5f5f", txt3="#2f2f2f",
+                accent=accent, ok="#0f7b0f", warn="#9d5d00", danger="#c42b1c",
+                up_col=accent, dn_col="#0f7b0f")
+    base.update(kw)
+    return Theme(**base)
+
+
 PRESETS: dict[str, Theme] = {
-    "Graphite": Theme(),
-    "Aurora": Theme(
-        bg="#152421", hdr="#152421", border="#35504a", btn="#20352f",
-        btn_h="#2b463e", hov="#315448", accent="#8ae0bc", ok="#8ae0bc",
-        txt="#edf8f2", txt2="#a3bfb2", txt3="#c8e1d4"),
-    "Rose Quartz": Theme(
-        bg="#281e2b", hdr="#281e2b", border="#503b51", btn="#362b3b",
-        btn_h="#46354a", hov="#533e53", accent="#edb3d5", ok="#a9d8bc",
-        txt="#fbf0f7", txt2="#c4aabe", txt3="#e2c8db"),
-    "Ocean Mist": Theme(
-        bg="#17232f", hdr="#17232f", border="#354d61", btn="#223342",
-        btn_h="#2a4255", hov="#344f64", accent="#92d5ee", ok="#96dfcb",
-        txt="#eef7ff", txt2="#a2bed0", txt3="#c3dfed"),
-    "Porcelain": Theme(
-        bg="#f5f3ef", hdr="#f5f3ef", border="#d9d5cf", btn="#ebe7e0",
-        btn_h="#dedad3", hov="#e0e5f0", accent="#5268b5", ok="#34745e",
-        txt="#242833", txt2="#646976", txt3="#444b59", warn="#916021",
-        danger="#b04454", up_col="#5268b5", dn_col="#34745e"),
+    # Windows 11 dark: neutral grey and the default blue accent.
+    "Dark":     Theme(),
+    "Light":    _light("#f3f3f3", "#fbfbfb", "#005fb8"),
+    "Black":    _dark("#0f0f0f", "#1c1c1c", "#99ebff", txt2="#9a9a9a"),
+    "Slate":    _dark("#1c2028", "#262b35", "#8ab4f8", txt2="#a3abba", txt3="#d3d9e4"),
+    "Ocean":    _dark("#16222b", "#1f2e39", "#5fd4e8", txt2="#9fb4c2", txt3="#cfe0ea"),
+    "Forest":   _dark("#18201b", "#212b25", "#7fd6a0", txt2="#a2b3a8", txt3="#d1ded5",
+                      ok="#7fd6a0", dn_col="#7fd6a0"),
+    "Plum":     _dark("#211c26", "#2b2533", "#c8a2ff", txt2="#b0a6bd", txt3="#ddd3e8"),
+    "Rose":     _dark("#241c1f", "#2f2529", "#ff9ab8", txt2="#bba5ad", txt3="#e6d2d9"),
+    "Mocha":    _dark("#221e1b", "#2d2824", "#f2b880", txt2="#b5aa9f", txt3="#e3d8cd"),
+    "Mist":     _light("#eef2f6", "#f9fbfd", "#2167d1", txt2="#5a6472"),
+    "Sand":     _light("#f4f0ea", "#fcfaf6", "#a35a14", txt2="#6b6158", ok="#4f7a28",
+                       dn_col="#4f7a28"),
+}
 
-    # ── Neutral dark — the defaults ────────────────────────
-
-    # Neutral dark blue-grey — the default
-    "Dark Blue": Theme(),
-
-    # Cool blue-grey bg — feels like a code editor
-    "Tokyo Night": Theme(
-        bg="#1a1b2e", hdr="#13141f", border="#2a2b40",
-        hov="#24253a", btn="#252636", btn_h="#303148",
-        accent="#7aa2f7", ok="#9ece6a",
-        txt="#c0caf5", txt2="#565f89", txt3="#a9b1d6",
-        warn="#e0af68", danger="#f7768e",
-        up_col="#7dcfff", dn_col="#9ece6a",
-    ),
-
-    # Muted blue-grey — Scandinavian, calm
-    "Nord": Theme(
-        bg="#2e3440", hdr="#242932", border="#434c5e",
-        hov="#3b4252", btn="#3b4252", btn_h="#434c5e",
-        accent="#88c0d0", ok="#a3be8c",
-        txt="#eceff4", txt2="#8896a8", txt3="#d8dee9",
-        warn="#ebcb8b", danger="#bf616a",
-        up_col="#88c0d0", dn_col="#a3be8c",
-    ),
-
-    # Purple-grey bg — feels rich and moody
-    "Dracula": Theme(
-        bg="#282a36", hdr="#1e1f29", border="#44475a",
-        hov="#383a4a", btn="#3a3c4e", btn_h="#484a5e",
-        accent="#bd93f9", ok="#50fa7b",
-        txt="#f8f8f2", txt2="#6272a4", txt3="#cdd6f4",
-        warn="#ffb86c", danger="#ff5555",
-        up_col="#8be9fd", dn_col="#50fa7b",
-    ),
-
-    # ── Light themes ───────────────────────────────────────
-
-    # Bright icy blue-white — the only real light theme
-    "Ice": Theme(
-        bg="#e8f4f8", hdr="#d0e8f0", border="#90c8e0",
-        hov="#d8eef8", btn="#c8e4f0", btn_h="#b0d8ec",
-        accent="#0088cc", ok="#0077bb",
-        txt="#001830", txt2="#406080", txt3="#204060",
-        warn="#cc6600", danger="#cc0022",
-        up_col="#0088cc", dn_col="#00aacc",
-        stat_font="Consolas",
-    ),
-
-    # Warm cream/paper bg — easy on the eyes all day
-    "Parchment": Theme(
-        bg="#f5f0e8", hdr="#ede5d8", border="#c8b89a",
-        hov="#ede5d8", btn="#e5ddd0", btn_h="#d8cfc0",
-        accent="#8b4513", ok="#5a7a3a",
-        txt="#2a1a0a", txt2="#7a6050", txt3="#5a4030",
-        warn="#c87020", danger="#b83030",
-        up_col="#8b4513", dn_col="#5a7a3a",
-        stat_font="Georgia",
-    ),
-
-    # Soft grey-white — clean minimal
-    "Silver": Theme(
-        bg="#f0f0f2", hdr="#e0e0e4", border="#b0b0bc",
-        hov="#e4e4e8", btn="#d8d8de", btn_h="#c8c8d0",
-        accent="#4466cc", ok="#336633",
-        txt="#181820", txt2="#505060", txt3="#303040",
-        warn="#aa6600", danger="#aa2222",
-        up_col="#4466cc", dn_col="#336633",
-    ),
-
-    # ── Warm-tinted backgrounds ────────────────────────────
-
-    # Deep teal bg — feels like deep water
-    "Abyss": Theme(
-        bg="#0a1a1c", hdr="#061214", border="#0e3038",
-        hov="#102428", btn="#122830", btn_h="#183440",
-        accent="#00e5ff", ok="#00e5ff",
-        txt="#d8f8ff", txt2="#2a7888", txt3="#70c8d8",
-        warn="#ffaa00", danger="#ff3344",
-        up_col="#00e5ff", dn_col="#00ff88",
-        stat_font="Consolas",
-    ),
-
-    # Dark teal-black + electric cyan
-    "Neural": Theme(
-        bg="#080c10", hdr="#040810", border="#0a3040",
-        hov="#0c1820", btn="#0e2030", btn_h="#142840",
-        accent="#00e5ff", ok="#00e5ff",
-        txt="#e0f8ff", txt2="#2a7a9a", txt3="#80d8f0",
-        warn="#ff9500", danger="#ff1744",
-        up_col="#00e5ff", dn_col="#00ff88",
-        stat_font="Consolas",
-    ),
-
-    # Dark warm amber-brown bg + yellow accent
-    "Cyberpunk": Theme(
-        bg="#0d0d12", hdr="#080810", border="#2a1a3a",
-        hov="#151020", btn="#1a1428", btn_h="#221c38",
-        accent="#f0e000", ok="#f0e000",
-        txt="#fff8e0", txt2="#aa9840", txt3="#ddd080",
-        warn="#ff6600", danger="#ff0044",
-        up_col="#f0e000", dn_col="#00ffee",
-    ),
-
-    # Dark blue-black + warm sunset orange
-    "Dusk": Theme(
-        bg="#0e1018", hdr="#090b12", border="#2a2d3a",
-        hov="#191d2a", btn="#1e2230", btn_h="#272c3e",
-        accent="#e8724a", ok="#e8724a",
-        txt="#f0ece8", txt2="#7a7a8a", txt3="#c8b8a8",
-        warn="#e8a84a", danger="#e85a4a",
-        up_col="#e8724a", dn_col="#4a7ae8",
-        stat_font="Consolas",
-    ),
-
-    # Rich warm brown bg + amber
-    "Ember": Theme(
-        bg="#1a1000", hdr="#120b00", border="#3a2200",
-        hov="#261800", btn="#2c1c00", btn_h="#382400",
-        accent="#ffaa00", ok="#ffaa00",
-        txt="#fff8e0", txt2="#8a6020", txt3="#ffd080",
-        warn="#ff6600", danger="#ff2222",
-        up_col="#ffaa00", dn_col="#ff6600",
-        stat_font="Consolas",
-    ),
-
-    # Dark burgundy-brown bg + warm orange
-    "Rust": Theme(
-        bg="#1a0e08", hdr="#120908", border="#3a1808",
-        hov="#261408", btn="#2c1808", btn_h="#382008",
-        accent="#fb923c", ok="#fb923c",
-        txt="#fff4e8", txt2="#8a5030", txt3="#d09060",
-        warn="#fbbf24", danger="#ef4444",
-        up_col="#fb923c", dn_col="#facc15",
-        stat_font="Consolas",
-    ),
-
-    # ── Cool-tinted backgrounds ────────────────────────────
-
-    # Deep ocean navy bg + sky blue
-    "Ocean": Theme(
-        bg="#071428", hdr="#050e1c", border="#0e2848",
-        hov="#0c2040", btn="#102448", btn_h="#142c58",
-        accent="#38bdf8", ok="#38bdf8",
-        txt="#e0f4ff", txt2="#3a70a0", txt3="#80c8f0",
-        warn="#fbbf24", danger="#f87171",
-        up_col="#38bdf8", dn_col="#34d399",
-        stat_font="Consolas",
-    ),
-
-    # Deep purple bg + lavender — rich and vivid
-    "Void": Theme(
-        bg="#120820", hdr="#0c0618", border="#2a1050",
-        hov="#1c1038", btn="#201440", btn_h="#281848",
-        accent="#c084fc", ok="#c084fc",
-        txt="#f5e8ff", txt2="#7040a0", txt3="#d0a0f0",
-        warn="#ffcc00", danger="#ff4466",
-        up_col="#c084fc", dn_col="#60a0ff",
-        stat_font="Consolas",
-    ),
-
-    # Deep pink-purple bg + hot pink
-    "Midnight": Theme(
-        bg="#180820", hdr="#100618", border="#381048",
-        hov="#220c30", btn="#281040", btn_h="#301448",
-        accent="#ff4080", ok="#ff4080",
-        txt="#fff0f8", txt2="#904070", txt3="#ffaad0",
-        warn="#ffcc00", danger="#ff1744",
-        up_col="#ff4080", dn_col="#c084fc",
-        stat_font="Consolas",
-    ),
-
-    # Deep green bg + neon green
-    "Forest": Theme(
-        bg="#061408", hdr="#040e06", border="#0a2c10",
-        hov="#0c2010", btn="#0e2412", btn_h="#122c18",
-        accent="#39ff14", ok="#39ff14",
-        txt="#e0ffe0", txt2="#2a7a20", txt3="#90e080",
-        warn="#ffdd00", danger="#ff4422",
-        up_col="#39ff14", dn_col="#00ffcc",
-        stat_font="Consolas",
-    ),
-
-    # ── Unique / special ───────────────────────────────────
-
-    # Deep ocean teal + solar green — solarized classic
-    "Solarized": Theme(
-        bg="#002b36", hdr="#00212b", border="#073642",
-        hov="#003d4a", btn="#00424f", btn_h="#005060",
-        accent="#268bd2", ok="#859900",
-        txt="#fdf6e3", txt2="#657b83", txt3="#93a1a1",
-        warn="#cb4b16", danger="#dc322f",
-        up_col="#2aa198", dn_col="#859900",
-    ),
-
-    # Deep purple bg + neon pink/cyan — retro aesthetic
-    "Vaporwave": Theme(
-        bg="#1a0828", hdr="#120520", border="#3a1050",
-        hov="#241040", btn="#2a1448", btn_h="#341858",
-        accent="#ff71ce", ok="#05ffa1",
-        txt="#ffffe0", txt2="#b967ff", txt3="#ffffa0",
-        warn="#fffb96", danger="#ff3c6e",
-        up_col="#01cdfe", dn_col="#05ffa1",
-    ),
-
-    # Pure black bg + white — maximum contrast
-    "Mono": Theme(
-        bg="#0a0a0a", hdr="#050505", border="#282828",
-        hov="#141414", btn="#181818", btn_h="#202020",
-        accent="#ffffff", ok="#ffffff",
-        txt="#ffffff", txt2="#606060", txt3="#c0c0c0",
-        warn="#ffcc00", danger="#ff4444",
-        up_col="#ffffff", dn_col="#aaaaaa",
-        stat_font="Consolas",
-    ),
-
-    # Deep space black + rocket-flame red — matches the dark space wallpaper
-    "Launch": Theme(
-        bg="#08090e", hdr="#05060a", border="#1a1a2e",
-        hov="#0f1020", btn="#0c0d1a", btn_h="#141528",
-        accent="#cc1a28", ok="#2a6fd4",
-        txt="#e8eaf2", txt2="#4a5280", txt3="#8890b8",
-        warn="#d45010", danger="#ff1a30",
-        up_col="#2a6fd4", dn_col="#cc1a28",
-        stat_font="Consolas",
-    ),
-
-    # Pure black bg + vivid red — high contrast
-    "Crimson": Theme(
-        bg="#0a0606", hdr="#060404", border="#280a0a",
-        hov="#180606", btn="#140505", btn_h="#1e0808",
-        accent="#e0101e", ok="#e0101e",
-        txt="#f5eaea", txt2="#7a3030", txt3="#c07070",
-        warn="#d44010", danger="#ff1030",
-        up_col="#e0101e", dn_col="#ff4444",
-        stat_font="Consolas",
-    ),
-
+# Themes from earlier versions, mapped to the closest one in the current set.
+LEGACY_PRESETS = {
+    "Graphite": "Dark", "Dark Blue": "Dark", "Tokyo Night": "Slate", "Nord": "Slate",
+    "Dracula": "Plum", "Void": "Plum", "Vaporwave": "Plum", "Midnight": "Rose",
+    "Rose Quartz": "Rose", "Aurora": "Forest", "Forest": "Forest", "Ocean Mist": "Ocean",
+    "Ocean": "Ocean", "Abyss": "Ocean", "Neural": "Ocean", "Solarized": "Ocean",
+    "Porcelain": "Light", "Silver": "Light", "Ice": "Mist", "Parchment": "Sand",
+    "Dusk": "Mocha", "Ember": "Mocha", "Rust": "Mocha", "Cyberpunk": "Black",
+    "Mono": "Black", "Launch": "Black", "Crimson": "Black",
 }
 
 active: Theme = Theme()
+
+
+def ui_font(data: dict) -> str:
+    """The user's chosen font for note text; Segoe UI means the system font."""
+    name = data.get("ui_font") or "Segoe UI"
+    return FONT if name == "Segoe UI" else name

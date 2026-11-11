@@ -1,14 +1,27 @@
 """
-context_menu.py — Themed context menu that matches the active theme.
+context_menu.py — Windows 11 style context menu (a rounded flyout).
 Drop-in replacement for tk.Menu — same add_command / add_separator / tk_popup API.
+Labels may start with an emoji followed by two spaces ("✎  Rename"); the
+emoji is shown as the matching Segoe Fluent Icons glyph.
 """
 from __future__ import annotations
 import tkinter as tk
 
 ITEM_H = 32
 SEP_H  = 9
-MIN_W  = 200
-PAD_X  = 16
+MIN_W  = 220
+PAD    = 4      # inset of the item highlight inside the flyout
+
+# Emoji used in menu labels → Fluent icon names.
+_ICONS = {
+    "⤢": "focus", "✎": "edit", "🗑": "delete", "✕": "close", "⚙": "settings",
+    "⏻": "power", "▶": "play", "🖼": "picture", "📂": "open", "➕": "add",
+    "🖥": "desktop", "✨": "sparkle", "↗": "open", "📁": "folder", "🔗": "link", "✏": "rename",
+    "◈": "picture", "📋": "copy", "\u2713": "check", "\U0001F5A5": "desktop",
+}
+# Plain labels that still deserve an icon.
+_TEXT_ICONS = {"Remove": "delete", "Remove widget": "delete", "Delete widget": "delete",
+               "Clear note": "clear", "Rename": "edit"}
 
 
 class ContextMenu:
@@ -20,7 +33,12 @@ class ContextMenu:
         self._hov:   int | None = None
 
     def add_command(self, label: str = "", command=None, state: str = "normal") -> None:
-        self._items.append({"type": "cmd", "label": label,
+        icon, text = None, label
+        parts = label.split("  ", 1)
+        if len(parts) == 2 and len(parts[0]) <= 2:
+            icon, text = _ICONS.get(parts[0].strip(), None), parts[1]
+        icon = icon or _TEXT_ICONS.get(text)
+        self._items.append({"type": "cmd", "label": text, "icon": icon,
                             "command": command, "state": state})
 
     def add_separator(self) -> None:
@@ -35,13 +53,14 @@ class ContextMenu:
         self._show(x, y)
 
     def _show(self, x: int, y: int) -> None:
+        from desktop_widgets.theme import CHROMA, TYPE
+        from desktop_widgets.ui.drawing import rounded_rect
+        import tkinter.font as tkfont
         t = self._t
 
-        w = MIN_W
-        h = 8
-        for item in self._items:
-            h += SEP_H if item["type"] == "sep" else ITEM_H
-        h += 8
+        measure = tkfont.Font(root=self._root, font=TYPE["body"]).measure
+        w = max([MIN_W] + [measure(i["label"]) + 76 for i in self._items if i["type"] == "cmd"])
+        h = 2 * PAD + sum(SEP_H if i["type"] == "sep" else ITEM_H for i in self._items)
 
         from desktop_widgets.services.screens import area_for, clamp
         x, y = clamp(x, y, w, h, area_for(self._root, x, y), margin=4)
@@ -49,30 +68,24 @@ class ContextMenu:
         self._win = tk.Toplevel(self._root)
         self._win.overrideredirect(True)
         self._win.attributes("-topmost", True)
-        self._win.configure(bg=t.border)
+        self._win.configure(bg=CHROMA)
+        self._win.attributes("-transparentcolor", CHROMA)
         self._win.geometry(f"{w}x{h}+{x}+{y}")
 
-        cv = tk.Canvas(self._win, width=w, height=h,
-                       bg=t.hdr, highlightthickness=1,
-                       highlightbackground=t.border)
+        cv = tk.Canvas(self._win, width=w, height=h, bg=CHROMA, highlightthickness=0)
         cv.pack(fill="both", expand=True)
+        rounded_rect(cv, 0, 0, w, h, 8, fill=t.btn, outline=t.border, hard=True)
 
-        iy = 8
         self._item_rects = []
-
+        iy = PAD
         for i, item in enumerate(self._items):
             if item["type"] == "sep":
                 cy = iy + SEP_H // 2
-                cv.create_line(PAD_X, cy, w - PAD_X, cy,
-                               fill=t.border, width=1, tags=f"sep_{i}")
+                cv.create_line(1, cy, w - 1, cy, fill=t.border, width=1)
                 self._item_rects.append(None)
                 iy += SEP_H
             else:
-                disabled = item.get("state") == "disabled"
-                fg = t.txt2 if disabled else t.txt
                 self._item_rects.append((iy, iy + ITEM_H, i))
-                self._draw_label(cv, item["label"], PAD_X, iy + ITEM_H // 2,
-                                 fg, bold=False, tags=f"item_{i}")
                 iy += ITEM_H
 
         def _motion(e):
@@ -80,7 +93,7 @@ class ContextMenu:
             for rect in self._item_rects:
                 if rect is None: continue
                 y1, y2, idx = rect
-                if y1 <= e.y <= y2:
+                if y1 <= e.y < y2:
                     itm = self._items[idx]
                     if itm.get("state") != "disabled" and itm.get("command"):
                         new_hov = idx
@@ -93,7 +106,7 @@ class ContextMenu:
             for rect in self._item_rects:
                 if rect is None: continue
                 y1, y2, idx = rect
-                if y1 <= e.y <= y2:
+                if y1 <= e.y < y2:
                     itm = self._items[idx]
                     if itm.get("state") != "disabled" and itm.get("command"):
                         self._close()
@@ -106,7 +119,7 @@ class ContextMenu:
             self._redraw(cv, w)
 
         cv.bind("<Motion>",   _motion)
-        cv.bind("<Button-1>", _click)
+        cv.bind("<ButtonRelease-1>", _click)
         cv.bind("<Leave>",    _leave)
         self._win.bind("<Escape>",   lambda e: self._close())
         self._win.bind("<FocusOut>", lambda e: self._close())
@@ -119,55 +132,27 @@ class ContextMenu:
         self._win.grab_set()
 
     def _redraw(self, cv: tk.Canvas, w: int) -> None:
+        from desktop_widgets.theme import TYPE, ICON, ICON_FONT, R_CTRL
+        from desktop_widgets import theme as th
+        from desktop_widgets.ui.drawing import rounded_rect
         t  = self._t
-        iy = 8
-        cv.delete("hover")
-        for i in range(len(self._items)):
-            cv.delete(f"item_{i}")
-
-        for i, item in enumerate(self._items):
-            if item["type"] == "sep":
-                iy += SEP_H
+        cv.delete("item")
+        for rect in self._item_rects:
+            if rect is None:
                 continue
-
+            y1, y2, i = rect
+            item = self._items[i]
+            disabled = item.get("state") == "disabled"
+            fg = t.txt2 if disabled else t.txt
             if i == self._hov:
-                cv.create_rectangle(2, iy, w - 2, iy + ITEM_H,
-                                    fill=t.hov, outline="", tags="hover")
-                cv.create_rectangle(2, iy, 5, iy + ITEM_H,
-                                    fill=t.accent, outline="", tags="hover")
-                self._draw_label(cv, item["label"], PAD_X + 2, iy + ITEM_H // 2,
-                                 t.txt, bold=True, tags="hover")
-            else:
-                disabled = item.get("state") == "disabled"
-                fg = t.txt2 if disabled else t.txt
-                self._draw_label(cv, item["label"], PAD_X, iy + ITEM_H // 2,
-                                 fg, bold=False, tags=f"item_{i}")
-            iy += ITEM_H
-
-        cv.tag_raise("hover")
-        for i in range(len(self._items)):
-            cv.tag_raise(f"item_{i}")
-
-    def _draw_label(self, cv, label: str, x: int, y: int,
-                    fg: str, bold: bool, tags: str) -> None:
-        """Draw label with emoji always at normal weight, text optionally bold."""
-        # Split leading emoji from rest of label
-        # Labels look like "⤢  Open focus" or "✎  Rename"
-        parts = label.split("  ", 1)
-        if len(parts) == 2:
-            icon, text = parts[0], parts[1]
-            # Draw emoji at normal weight always
-            cv.create_text(x, y, text=icon + "  ", anchor="w",
-                           font=("Segoe UI", 10), fill=fg, tags=tags)
-            # Measure emoji width to offset text
-            icon_w = len(icon) * 11 + 14  # approx
-            cv.create_text(x + icon_w, y, text=text, anchor="w",
-                           font=("Segoe UI", 10, "bold") if bold else ("Segoe UI", 10),
-                           fill=fg, tags=tags)
-        else:
-            cv.create_text(x, y, text=label, anchor="w",
-                           font=("Segoe UI", 10, "bold") if bold else ("Segoe UI", 10),
-                           fill=fg, tags=tags)
+                shape = rounded_rect(cv, PAD, y1 + 1, w - PAD, y2 - 1, R_CTRL, fill=t.btn_h)
+                cv.addtag_withtag("item", shape)
+            cy = (y1 + y2) // 2
+            if item.get("icon"):
+                cv.create_text(PAD + 20, cy, text=ICON[item["icon"]], fill=fg,
+                               font=(th.ICON_FONT, -14), tags="item")
+            cv.create_text(PAD + 44, cy, text=item["label"], anchor="w",
+                           font=TYPE["body"], fill=fg, tags="item")
 
     def _on_outside_click(self, e) -> None:
         if self._win:

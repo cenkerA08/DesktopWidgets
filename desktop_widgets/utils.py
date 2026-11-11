@@ -934,105 +934,89 @@ def remove_task() -> bool:
 # ── Styled dialogs ─────────────────────────────────────────
 
 def _make_dialog(parent: tk.Misc, t, dw: int, dh: int) -> tk.Toplevel:
-    """Create a centered, borderless, topmost dialog window."""
+    """A centred, borderless, topmost Windows 11 dialog: rounded surface with a
+    hairline border. Returns (dialog, content frame, footer frame)."""
+    from desktop_widgets.theme import CHROMA
+    from desktop_widgets.ui.drawing import rounded_rect
     dlg = tk.Toplevel(parent)
     dlg.title("")
     dlg.overrideredirect(True)
     dlg.attributes("-topmost", True)
-    dlg.configure(bg=t.bg)
+    dlg.configure(bg=CHROMA)
+    dlg.attributes("-transparentcolor", CHROMA)
     sw = parent.winfo_screenwidth()
     sh = parent.winfo_screenheight()
     dlg.geometry(f"{dw}x{dh}+{(sw - dw) // 2}+{(sh - dh) // 2}")
-
-    # Outer border ring for a card-like feel
-    border_frame = tk.Frame(dlg, bg=t.border, padx=1, pady=1)
-    border_frame.pack(fill="both", expand=True)
-    inner = tk.Frame(border_frame, bg=t.bg)
-    inner.pack(fill="both", expand=True)
-
+    cv = tk.Canvas(dlg, width=dw, height=dh, bg=CHROMA, highlightthickness=0)
+    cv.pack(fill="both", expand=True)
+    footer_h = 72
+    rounded_rect(cv, 0, 0, dw, dh, 8, fill=t.bg, outline=t.border, hard=True)
+    # The footer is a slightly different layer, like the Windows 11 ContentDialog.
+    rounded_rect(cv, 1, dh - footer_h, dw - 1, dh - 1, 7, fill=t.btn, corners='bottom')
+    cv.create_line(1, dh - footer_h, dw - 1, dh - footer_h, fill=t.border)
+    inner = tk.Frame(cv, bg=t.bg)
+    cv.create_window(8, 8, window=inner, anchor="nw", width=dw - 16, height=dh - footer_h - 9)
+    footer = tk.Frame(cv, bg=t.btn)
+    cv.create_window(24, dh - footer_h // 2, window=footer, anchor="w", width=dw - 48, height=36)
+    dlg._footer = footer
+    dlg._width = dw
     return dlg, inner
 
 
 def _dialog_header(parent, t, title: str, icon: str = "") -> None:
-    """Accent-colored top bar with icon + title."""
-    hdr = tk.Frame(parent, bg=t.hdr)
-    hdr.pack(fill="x")
-
-    # Thin accent line at very top
-    tk.Frame(hdr, bg=t.accent, height=2).pack(fill="x")
-
-    label_text = f"{icon}  {title}" if icon else title
-    tk.Label(hdr, text=label_text,
-             font=("Segoe UI Semibold", 12),
-             bg=t.hdr, fg=t.txt,
-             anchor="w", padx=18, pady=11).pack(fill="x")
+    """Dialog title in the Windows 11 subtitle style."""
+    from desktop_widgets.theme import TYPE
+    tk.Label(parent, text=title, font=(TYPE["display"][0], 15),
+             bg=t.bg, fg=t.txt, anchor="w", padx=16).pack(fill="x", pady=(16, 0))
 
 
-def _styled_button(parent, text: str, bg: str, fg: str,
-                   command, font_size: int = 10, bold: bool = False) -> tk.Label:
-    """
-    A Label-based button with hover highlight — looks cleaner than tk.Button
-    since it avoids the sunken relief artifact on Windows.
-    """
-    weight = "bold" if bold else "normal"
-    btn = tk.Label(parent, text=text,
-                   font=("Segoe UI", font_size, weight),
-                   bg=bg, fg=fg,
-                   cursor="hand2",
-                   padx=20, pady=7)
-
-    # Lighten bg on hover
-    def _darken(hex_color: str, amount: int = 20) -> str:
-        hex_color = hex_color.lstrip("#")
-        r = max(0, int(hex_color[0:2], 16) - amount)
-        g = max(0, int(hex_color[2:4], 16) - amount)
-        b = max(0, int(hex_color[4:6], 16) - amount)
-        return f"#{r:02x}{g:02x}{b:02x}"
-
-    hover_bg = _darken(bg, 25)
-    btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
-    btn.bind("<Leave>", lambda e: btn.config(bg=bg))
-    btn.bind("<Button-1>", lambda e: command())
-    return btn
+def _dialog_buttons(dlg, t, primary: str, on_primary, on_cancel):
+    """Two equal-width buttons in the dialog footer: the primary one first."""
+    from desktop_widgets.ui.components import RoundedButton
+    footer = dlg._footer
+    w = (dlg._width - 48 - 8) // 2
+    RoundedButton(footer, primary, on_primary, t, accent=True, width=w, height=32
+                  ).pack(side="left")
+    RoundedButton(footer, "Cancel", on_cancel, t, width=w, height=32).pack(side="right")
 
 
 def ask_string(parent: tk.Misc, title: str, prompt: str,
                initial: str = "", theme: Theme | None = None) -> str | None:
-    from desktop_widgets.theme import Theme
+    from desktop_widgets.theme import Theme, TYPE, R_CTRL
+    from desktop_widgets.ui.drawing import rounded_rect
     t = theme or Theme()
     result = [None]
 
-    dlg, inner = _make_dialog(parent, t, dw=440, dh=210)
-    _dialog_header(inner, t, title, icon="✏")
+    dlg, inner = _make_dialog(parent, t, dw=440, dh=230)
+    _dialog_header(inner, t, title)
 
-    # Body
     body = tk.Frame(inner, bg=t.bg)
-    body.pack(fill="both", expand=True, padx=18, pady=(14, 0))
+    body.pack(fill="both", expand=True, padx=16, pady=(10, 0))
+    tk.Label(body, text=prompt, font=TYPE["body"], bg=t.bg, fg=t.txt2,
+             anchor="w").pack(fill="x", pady=(0, 8))
 
-    tk.Label(body, text=prompt,
-             font=("Segoe UI", 10),
-             bg=t.bg, fg=t.txt2,
-             anchor="w").pack(fill="x", pady=(0, 6))
-
-    # Entry with rounded-looking container frame
-    entry_frame = tk.Frame(body, bg=t.accent, padx=1, pady=1)
-    entry_frame.pack(fill="x")
-    entry_inner = tk.Frame(entry_frame, bg="#0e1118")
-    entry_inner.pack(fill="x")
-
+    # Text box: rounded field whose bottom edge turns accent while focused.
+    field = tk.Canvas(body, height=36, bg=t.bg, highlightthickness=0)
+    field.pack(fill="x")
     var = tk.StringVar(value=initial)
-    entry = tk.Entry(entry_inner, textvariable=var,
-                     font=("Segoe UI", 12),
-                     bg="#0e1118", fg=t.txt,
-                     insertbackground=t.accent,
-                     relief="flat", bd=0)
-    entry.pack(fill="x", padx=10, pady=8)
+    entry = tk.Entry(field, textvariable=var, font=TYPE["body"],
+                     bg=t.btn, fg=t.txt, insertbackground=t.txt,
+                     selectbackground=t.accent, relief="flat", bd=0, highlightthickness=0)
+    def paint(e=None):
+        w = field.winfo_width()
+        if w <= 1:
+            return
+        field.delete("box")
+        box = rounded_rect(field, 0, 0, w, 36, R_CTRL, fill=t.btn, outline=t.border)
+        field.addtag_withtag("box", box)
+        field.create_line(R_CTRL, 35, w - R_CTRL, 35, fill=t.accent, width=2, tags="box")
+        field.tag_lower("box")
+        field.coords("entry", 10, 18)
+        field.itemconfigure("entry", width=w - 20)
+    field.create_window(10, 18, window=entry, anchor="w", height=24, tags="entry")
+    field.bind("<Configure>", paint)
     entry.select_range(0, "end")
     entry.focus_set()
-
-    # Buttons
-    bf = tk.Frame(inner, bg=t.bg)
-    bf.pack(fill="x", padx=18, pady=14)
 
     def ok(e=None):
         result[0] = var.get().strip() or None
@@ -1041,13 +1025,7 @@ def ask_string(parent: tk.Misc, title: str, prompt: str,
     def cancel(e=None):
         dlg.destroy()
 
-    cancel_btn = _styled_button(bf, "Cancel", bg=t.btn, fg=t.txt2, command=cancel)
-    cancel_btn.pack(side="left")
-
-    ok_btn = _styled_button(bf, "OK", bg=t.accent, fg="white",
-                            command=ok, bold=True)
-    ok_btn.pack(side="right")
-
+    _dialog_buttons(dlg, t, "Save", ok, cancel)
     entry.bind("<Return>", ok)
     entry.bind("<Escape>", cancel)
     dlg.grab_set()
@@ -1056,23 +1034,14 @@ def ask_string(parent: tk.Misc, title: str, prompt: str,
 
 
 def ask_confirm(parent: tk.Misc, message: str, theme: Theme | None = None) -> bool:
-    from desktop_widgets.theme import Theme
+    from desktop_widgets.theme import Theme, TYPE
     t = theme or Theme()
     result = [False]
 
-    dlg, inner = _make_dialog(parent, t, dw=400, dh=200)
-    _dialog_header(inner, t, "Confirm", icon="⚠")
-
-    # Message
-    tk.Label(inner, text=message,
-             font=("Segoe UI", 10),
-             bg=t.bg, fg=t.txt2,
-             justify="center",
-             wraplength=360).pack(pady=18, padx=18)
-
-    # Buttons
-    bf = tk.Frame(inner, bg=t.bg)
-    bf.pack(fill="x", padx=18, pady=(0, 16))
+    dlg, inner = _make_dialog(parent, t, dw=420, dh=200)
+    _dialog_header(inner, t, "Are you sure?")
+    tk.Label(inner, text=message, font=TYPE["body"], bg=t.bg, fg=t.txt3,
+             justify="left", anchor="w", wraplength=380).pack(fill="x", padx=16, pady=(10, 0))
 
     def yes():
         result[0] = True
@@ -1081,14 +1050,10 @@ def ask_confirm(parent: tk.Misc, message: str, theme: Theme | None = None) -> bo
     def no():
         dlg.destroy()
 
-    cancel_btn = _styled_button(bf, "Cancel", bg=t.btn, fg=t.txt2, command=no)
-    cancel_btn.pack(side="left")
-
-    confirm_btn = _styled_button(bf, "Confirm", bg="#8b2020", fg="white",
-                                 command=yes, bold=True)
-    confirm_btn.pack(side="right")
-
+    _dialog_buttons(dlg, t, "Confirm", yes, no)
     dlg.bind("<Escape>", lambda e: no())
+    dlg.bind("<Return>", lambda e: yes())
+    dlg.focus_force()
     dlg.grab_set()
     parent.wait_window(dlg)
     return result[0]

@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import tkinter as tk
-from desktop_widgets.theme import HDR_H, INSET, TYPE
+from desktop_widgets.theme import HDR_H, INSET, TYPE, on_color
 from desktop_widgets.widgets.base_widget import BaseWidget
 import desktop_widgets.config as config
 
@@ -35,47 +35,44 @@ class NotesWidget(BaseWidget):
         )
         self.cv.bind("<Button-3>", self._right_click)
 
+    def _home_block(self):
+        return self.mgr.data.get("notes")
+
     def _theme(self):
         return config.get_theme(self.mgr.data,
                                 self.mgr.data.get("notes", {}).get("theme_override"))
 
     def _draw(self) -> None:
         t = self._theme()
-        self.paint_header("Notes", meta="Autosaved")
+        self.paint_header("Notes", meta="Saved")
         if self._collapsed:
             self._remove_text_widget()
             return
-        self.paint_panel(INSET, HDR_H + INSET, self.W - INSET, self.H - INSET)
-        # Small capitalised label with a dot, like the stats and media cards.
-        lx, ly = INSET + 16, HDR_H + INSET + 16
-        self.cv.create_oval(lx, ly - 3, lx + 6, ly + 3, fill=t.accent, outline="")
-        self.cv.create_text(lx + 12, ly, text="YOUR NOTES", font=TYPE["meta"],
-                            fill=t.txt2, anchor="w")
+        self.paint_panel(INSET, HDR_H, self.W - INSET, self.H - INSET)
         self._ensure_text_widget(t)
 
     def _ensure_text_widget(self, t) -> None:
         SB_W = 4
-        PAD  = INSET + 12            # text sits inside the inset panel
-        LABEL = 22                   # room for the "YOUR NOTES" label
-        tx = PAD - 4; ty = HDR_H + PAD + LABEL
-        tw = self.W - PAD * 2 - SB_W
-        th = self.H - HDR_H - PAD * 2 - LABEL
-        SB_X = self.W - PAD - SB_W + 6
+        PAD  = INSET + 8             # text sits inside the inset panel
+        tx = PAD; ty = HDR_H + 8
+        tw = self.W - PAD * 2 - SB_W - 4
+        th = self.H - HDR_H - INSET - 16
+        SB_X = self.W - INSET - SB_W - 5
 
         if self._text_widget is None:
             blk = self.mgr.data.get("notes", {})
-            ui_font = self.mgr.data.get("ui_font", "Segoe UI")
+            from desktop_widgets.theme import ui_font as _uf; ui_font = _uf(self.mgr.data)
 
             txt = tk.Text(
                 self.win,
                 font=(ui_font, 10),
                 bg=t.btn, fg=t.txt,
                 insertbackground=t.txt,
-                selectbackground=t.accent, selectforeground=t.bg,
-                relief="flat", bd=0, spacing1=2, spacing3=2,
+                selectbackground=t.accent, selectforeground=on_color(t.accent),
+                relief="flat", bd=0, spacing1=3, spacing3=3,
                 wrap="word", undo=True,
                 highlightthickness=0,
-                padx=4, pady=4,
+                padx=2, pady=2,
             )
 
             # Canvas scrollbar — fully themed, no system widget
@@ -94,9 +91,10 @@ class NotesWidget(BaseWidget):
                     return
                 h = sb_cv.winfo_height()
                 if h <= 1: return
-                sb_cv.create_rectangle(
-                    0, int(top * h), SB_W, int(bot * h),
-                    fill=t.border, outline="", tags="thumb")
+                sb_cv.create_line(
+                    SB_W // 2, int(top * h) + 3, SB_W // 2, int(bot * h) - 3,
+                    width=SB_W, capstyle="round",
+                    fill=self._theme().txt2, tags="thumb")
 
             txt.configure(yscrollcommand=lambda *a: (_update_sb(),))
             txt.bind("<MouseWheel>",
@@ -139,9 +137,9 @@ class NotesWidget(BaseWidget):
                 self._scrollbar.place(x=SB_X, y=ty, width=SB_W, height=th)
                 self._scrollbar.configure(bg=t.btn)
             # Restyle text
-            ui_font = self.mgr.data.get("ui_font", "Segoe UI")
+            from desktop_widgets.theme import ui_font as _uf; ui_font = _uf(self.mgr.data)
             self._text_widget.configure(
-                bg=t.btn, fg=t.txt, selectforeground=t.bg,
+                bg=t.btn, fg=t.txt, selectforeground=on_color(t.accent),
                 insertbackground=t.txt,
                 selectbackground=t.accent,
                 font=(ui_font, 10),

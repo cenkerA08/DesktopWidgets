@@ -5,10 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import patch, Mock
 
 from desktop_widgets import config
-from desktop_widgets.ui.focus_overlay import FocusOverlay
 from desktop_widgets.widgets.group_widget import GroupWidget
 from desktop_widgets.ui.add_widget_screen import AddWidgetScreen
-from desktop_widgets.ui.components import RoundedButton
+from desktop_widgets.ui.components import RoundedButton, NavItem
 from desktop_widgets.ui.settings_screen import SettingsScreen
 from desktop_widgets.ui.drawing import rounded_image
 
@@ -27,15 +26,15 @@ class WidgetUiTests(unittest.TestCase):
         alpha = rounded_image(80, 40, 12, '#ffffff').getchannel('A')
         self.assertTrue(any(0 < value < 255 for value in alpha.tobytes()))
 
-    def test_media_card_spans_both_columns(self):
-        for method in ('new_group_dialog', 'new_docs_dialog', 'toggle_statsplus', 'toggle_notes', 'toggle_media'):
+    def test_add_widget_cards_form_an_even_grid(self):
+        for method in ('new_group_dialog', 'new_docs_dialog', 'toggle_statsplus', 'toggle_notes',
+                       'toggle_media', 'new_stack_dialog'):
             setattr(self.mgr, method, Mock())
         screen = AddWidgetScreen(self.mgr)
-        folder, media = screen.card_bounds['folder'], screen.card_bounds['media']
-        self.assertEqual(folder[0], media[0])
-        self.assertEqual(media[2], 2*folder[2]+12)
-        self.assertGreater(media[1], screen.card_bounds['docs'][1])
-        self.assertEqual(len(screen._icons), 5)
+        folder, stack = screen.card_bounds['folder'], screen.card_bounds['stack']
+        self.assertEqual(folder[2], stack[2])                 # six cards, all the same width
+        self.assertGreater(stack[1], screen.card_bounds['docs'][1])
+        self.assertEqual(len(screen._icons), 6)
         screen.close()
 
     def test_settings_navigation_has_uniform_dimensions(self):
@@ -45,13 +44,14 @@ class WidgetUiTests(unittest.TestCase):
             for child in widget.winfo_children():
                 yield child
                 yield from descendants(child)
-        nav = []
+        nav, labels = [], []
         for widget in descendants(screen.win):
-            if isinstance(widget, RoundedButton):
-                labels = [widget.itemcget(i, 'text') for i in widget.find_all() if widget.type(i) == 'text']
-                if labels in (['Appearance'], ['Widgets'], ['System']):
-                    nav.append((int(widget.cget('width')), int(widget.cget('height'))))
-        self.assertEqual(nav, [(120, 44)]*3)
+            if isinstance(widget, NavItem):
+                labels += [widget.itemcget(i, 'text') for i in widget.find_all()
+                           if widget.type(i) == 'text' and widget.itemcget(i, 'text').isalpha()]
+                nav.append((int(widget.cget('width')), int(widget.cget('height'))))
+        self.assertEqual(labels, ['Appearance', 'Widgets', 'System'])
+        self.assertEqual(len(set(nav)), 1)
         screen.close()
 
     def tearDown(self):
@@ -67,44 +67,3 @@ class WidgetUiTests(unittest.TestCase):
         widget.redraw()
         self.assertTrue(widget.cv.find_all())
 
-    def test_focus_buttons_hover_without_redraw_loop(self):
-        # Redrawing a button from <Enter>/<Leave> used to loop until Tk crashed.
-        focus = FocusOverlay(self.mgr, self.data['groups'][0])
-        x, y, w, *_ = focus._buttons['next']
-        for dx in (5, 10, 15):
-            focus.cv.event_generate('<Motion>', x=x+dx, y=y+20, warp=True)
-            self.root.update()
-        self.assertEqual(focus._hovered_button, 'next')
-        focus._track_buttons(type('E', (), {'x': -1, 'y': -1}))
-        self.assertIsNone(focus._hovered_button)
-        focus.close()
-
-    def test_focus_shelf_selects_previews_and_opens(self):
-        group = self.data['groups'][0]
-        group['apps'] = [{'name': 'One', 'path': r'C:\a.exe'}, {'name': 'Two', 'path': r'C:\b.exe'}]
-        with patch('desktop_widgets.ui.tiles.icon_image',
-                   side_effect=lambda app, size, accent: __import__('PIL.Image').Image.new('RGBA', (size, size), '#3366cc')):
-            focus = FocusOverlay(self.mgr, group)
-            focus._step(1)                    # Right arrow
-            self.assertEqual(focus._selected, 1)
-            focus._preview(0)                 # hovering shows another app in the hero
-            self.assertEqual(focus._previewed, 0)
-            focus._preview(None)
-            with patch('desktop_widgets.ui.focus_overlay.launch_app') as launch:
-                focus._open_selected()        # Enter / Play opens the selected app
-        launch.assert_called_once_with(r'C:\b.exe')
-
-    def test_focus_navigation_reuses_windows_and_closes_during_animation(self):
-        focus = FocusOverlay(self.mgr, self.data['groups'][0])
-        original_windows = tuple(self.root.winfo_children())
-        geometry = focus.win.geometry()
-        focus._nav_dir('right')
-        self.root.after(220, self.root.quit)
-        self.root.mainloop()
-        self.assertEqual(focus.group['id'], self.data['groups'][1]['id'])
-        self.assertEqual(tuple(self.root.winfo_children()), original_windows)
-        self.assertEqual(focus.win.geometry(), geometry)
-        focus._nav_dir('left')
-        focus.close()
-        self.root.update()
-        self.assertFalse(self.root.winfo_children())

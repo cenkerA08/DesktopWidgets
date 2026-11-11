@@ -24,19 +24,21 @@ class UpdateScreen:
         self.win.geometry(f'{w}x{h}+{left+(right-left-w)//2}+{top+(bottom-top-h)//2}')
         self.win.protocol('WM_DELETE_WINDOW', self.close)
         self.win.bind('<Escape>', lambda e: self.close())
-        tk.Label(self.win, text='A fresh update is ready', font=('Segoe UI', 22, 'bold'),
-                 bg=t.bg, fg=t.txt).pack(anchor='w', padx=24, pady=(24, 8))
-        tk.Label(self.win, text=f'Installed {updater.VERSION}  →  {release["tag_name"]}',
-                 font=('Segoe UI', 11), bg=t.bg, fg=t.accent).pack(anchor='w', padx=24)
-        tk.Label(self.win, text='WHAT’S NEW', font=('Segoe UI', 9, 'bold'),
-                 bg=t.bg, fg=t.txt2).pack(anchor='w', padx=24, pady=(24, 8))
+        from desktop_widgets.theme import TYPE
+        tk.Label(self.win, text='An update is ready', font=TYPE['display'],
+                 bg=t.bg, fg=t.txt).pack(anchor='w', padx=24, pady=(24, 4))
+        tk.Label(self.win, text=f'Version {updater.VERSION}  →  {release["tag_name"]}',
+                 font=TYPE['body'], bg=t.bg, fg=t.txt2).pack(anchor='w', padx=24)
+        tk.Label(self.win, text='What’s new', font=TYPE['strong'],
+                 bg=t.bg, fg=t.txt).pack(anchor='w', padx=24, pady=(20, 8))
         notes_frame = release_notes_view(self.win, release.get('body') or
                                          'Improvements and fixes for DesktopWidget.', t)
         notes_frame.pack(fill='both', expand=True, padx=24)
         self.status = tk.Label(self.win, text='Your widgets and settings will be kept. The app will restart.',
-                               bg=t.bg, fg=t.txt2, wraplength=w-48, justify='left')
+                               bg=t.bg, fg=t.txt2, font=TYPE['caption'], wraplength=w-48,
+                               justify='left', anchor='w')
         self.status.pack(fill='x', padx=24, pady=(16, 8))
-        self.progress = tk.Canvas(self.win, height=6, bg=t.btn, highlightthickness=0)
+        self.progress = tk.Canvas(self.win, height=4, bg=t.bg, highlightthickness=0)
         self.progress.pack(fill='x', padx=24, pady=(0, 16))
         self.actions = tk.Frame(self.win, bg=t.bg)
         self.actions.pack(fill='x', padx=24, pady=(0, 24))
@@ -82,8 +84,10 @@ class UpdateScreen:
             label, fraction = latest
             self.status.configure(text=label + (f' · {fraction:.0%}' if fraction is not None else '…'))
             self.progress.delete('all')
-            self.progress.create_rectangle(0, 0, self.progress.winfo_width() *
-                (fraction if fraction is not None else 0.12), 6, fill=self.theme.accent, outline='')
+            width = self.progress.winfo_width()
+            self.progress.create_line(2, 2, width - 2, 2, width=1, fill=self.theme.txt2)
+            done = max(4, (width - 4) * (fraction if fraction is not None else 0.12))
+            self.progress.create_line(2, 2, done, 2, width=4, capstyle='round', fill=self.theme.accent)
         if not self.future.done():
             self._poll_id = self.root.after(100, self.poll)
             return

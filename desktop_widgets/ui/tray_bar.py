@@ -1,5 +1,5 @@
 """
-tray_bar.py — Floating bottom-right bar with + and gear buttons.
+tray_bar.py — Floating corner bar: search, layouts, add a widget and settings.
 Both buttons are canvas-drawn so there are zero white flashes on click.
 """
 from __future__ import annotations
@@ -113,8 +113,11 @@ class _GearBtn(_CanvasBtn):
 # ── TrayBar ─────────────────────────────────────────────────
 
 class TrayBar:
-    W = 112
-    H = 48
+    # Search (quick launcher), layouts, add a widget, settings
+    BUTTONS = (('search', 'search'), ('layouts', 'desktop'), ('add', 'add'), ('settings', 'settings'))
+    CELL = 46
+    W = CELL * len(BUTTONS) + 4
+    H = 44
 
     def __init__(self, mgr: "Manager") -> None:
         self.mgr = mgr
@@ -149,28 +152,36 @@ class TrayBar:
             self._hover = value
             self.redraw()
 
+    def _key_at(self, x):
+        i = (x - 2) // self.CELL
+        return self.BUTTONS[i][0] if 0 <= i < len(self.BUTTONS) else None
+
     def _motion(self, event):
-        self._set_hover('add' if event.x < self.W // 2 else 'settings')
+        self._set_hover(self._key_at(event.x))
 
     def _click(self, event):
-        if event.x < self.W // 2:
+        key = self._key_at(event.x)
+        if key == 'search':
+            self.mgr.toggle_launcher()
+        elif key == 'layouts':
+            self.mgr.layouts_menu(self.win.winfo_rootx(), self.win.winfo_rooty())
+        elif key == 'add':
             self.mgr.show_add_picker()
-        else:
+        elif key == 'settings':
             self.mgr.open_settings()
 
     def redraw(self) -> None:
+        from desktop_widgets import theme as th
         t = config.get_theme(self.mgr.data)
         self.cv.delete('all')
-        _rounded_rect(self.cv, 1, 1, self.W-1, self.H-1, 20,
-                      fill=t.hdr, outline=t.border, width=1, hard=True)
-        if self._hover:
-            x1, x2 = (5, self.W//2-2) if self._hover == 'add' else (self.W//2+2, self.W-5)
-            _rounded_rect(self.cv, x1, 5, x2, self.H-5, 15, fill=t.btn_h)
-        self.cv.create_line(self.W//2, 12, self.W//2, self.H-12, fill=t.border)
-        self.cv.create_oval(14, 9, 44, 39, fill=t.accent, outline='')
-        accent = t.bg if t.accent != t.bg else t.txt
-        _draw_plus(self.cv, 29, 24, 13, 2.5, accent)
-        _draw_gear(self.cv, 83, 24, 9, 6.2, 8, t.txt)
+        _rounded_rect(self.cv, 0, 0, self.W, self.H, 8,
+                      fill=t.bg, outline=t.border, width=1, hard=True)
+        for i, (key, icon) in enumerate(self.BUTTONS):
+            x1 = 2 + i * self.CELL
+            if self._hover == key:
+                _rounded_rect(self.cv, x1 + 2, 4, x1 + self.CELL - 2, self.H - 4, 5, fill=t.btn_h)
+            self.cv.create_text(x1 + self.CELL // 2, self.H // 2, text=th.ICON[icon], fill=t.txt,
+                                font=(th.ICON_FONT, -16))
 
     def destroy(self) -> None:
         try: self.win.after_cancel(self._desktop_job)

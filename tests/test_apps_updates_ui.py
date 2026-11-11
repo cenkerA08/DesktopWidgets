@@ -243,11 +243,11 @@ class NewUiTests(unittest.TestCase):
         with patch('desktop_widgets.services.screens.area_for', return_value=(0, 0, 2560, 1392)):
             bar = TrayBar(self.mgr)
             self.root.update_idletasks()
-            self.assertEqual(bar.win.geometry(), '112x48+2416+1312')
+            self.assertEqual(bar.win.geometry(), '188x44+2340+1316')
             self.mgr.data['tray_corner'] = 'top_left'
             bar.reposition()
             self.root.update_idletasks()
-            self.assertEqual(bar.win.geometry(), '112x48+32+32')
+            self.assertEqual(bar.win.geometry(), '188x44+32+32')
             bar.destroy()
 
     def test_large_folder_stays_in_work_area_and_scrolls_to_last_app(self):

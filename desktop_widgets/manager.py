@@ -11,12 +11,12 @@ import desktop_widgets.config as config
 from desktop_widgets.theme import CHROMA, MARGIN
 from desktop_widgets.utils import ask_string, ask_confirm, push_desktop, allow_dnd_from_explorer, launch_app, task_exists, create_task, remove_task, create_desktop_shortcut
 from desktop_widgets.widgets.group_widget import GroupWidget
+from desktop_widgets.widgets.stack_widget import StackWidget
 from desktop_widgets.widgets.statsplus_widget import StatsPlusWidget
 from desktop_widgets.widgets.notes_widget import NotesWidget
 from desktop_widgets.widgets.docs_widget import DocsWidget
 from desktop_widgets.widgets.media_widget import MediaWidget
 from desktop_widgets.ui.context_menu import ContextMenu
-from desktop_widgets.ui.focus_overlay import FocusOverlay
 from desktop_widgets.ui.settings_screen import SettingsScreen
 from desktop_widgets.ui.tray_bar import TrayBar
 
@@ -48,7 +48,7 @@ class Manager:
                                                         "icon_path": app.get("icon_path")}
             config.save(self.data)
         self.wins:         dict[int, GroupWidget]  = {}
-        self.focus:        FocusOverlay | None     = None
+        self.stack_wins:   dict[int, StackWidget]  = {}
         self.statsplus_win: StatsPlusWidget | None = None
         self.notes_win:    NotesWidget | None      = None
         self.docs_wins:    dict[int, DocsWidget]   = {}
@@ -60,10 +60,15 @@ class Manager:
         # Root window (invisible)
         self.root = TkinterDnD.Tk() if DND_OK else tk.Tk()
         self.root.withdraw()
+        _theme.init_fonts(self.root)
 
-        # Build widgets
+        # Build widgets (folders inside a stack are shown by the stack)
+        stacked = self.stacked_ids()
         for g in self.data["groups"]:
-            self._create_group(g)
+            if g["id"] not in stacked:
+                self._create_group(g)
+        for st in self.data.get("stacks", []):
+            self._create_stack(st)
 
         if self.data.get("statsplus", {}).get("enabled"):
             try: self.statsplus_win = StatsPlusWidget(self)
@@ -91,28 +96,61 @@ class Manager:
             threading.Thread(target=self._tray_loop, daemon=True).start()
 
         self._add_picker: tk.Toplevel | None = None
+
+        # Quick launcher on a system-wide shortcut
+        from desktop_widgets.services.hotkey import Hotkey, DEFAULT
+        self.launcher = None
+        self.hotkey = Hotkey(self.root, self.toggle_launcher)
+        self.hotkey.set(self.data.setdefault("launcher_hotkey", DEFAULT))
         from desktop_widgets.services.screens import work_areas
         self._screen_areas = work_areas(self.root)
         self.root.after(2000, self._check_screens)
-        from desktop_widgets.ui.focus_overlay import prewarm
-        self.root.after(4000, lambda: prewarm(self))   # focus view tiles, while idle
+        self._wall_sig = None
+        self.root.after(3000, self._check_wallpaper)
 
     def _check_screens(self):
         """Recover widgets after a display is removed or its work area changes."""
         from desktop_widgets.services.screens import work_areas, area_for, clamp
         areas = work_areas(self.root)
-        widgets = (list(self.wins.values()) + list(self.docs_wins.values()) +
-                   [w for w in (self.statsplus_win, self.notes_win, self.media_win) if w])
+        widgets = self.all_widgets()
         if areas != self._screen_areas and not any(w._mode for w in widgets):
+            # Displays changed (often right after sign-in, before the real
+            # resolution or second monitor is ready). Put every widget back at
+            # its saved spot; never save the squeezed positions.
             self._screen_areas = areas
             if self.tray_bar:
                 self.tray_bar.reposition()
             for widget in widgets:
-                old_rect = widget.rect()
-                widget.redraw()
-                if widget.rect() != old_rect:
-                    widget._save_geometry()
+                widget.restore_home()
         self.root.after(2000, self._check_screens)
+
+    def uses_wallpaper_theme(self) -> bool:
+        blocks = (self.data.get("groups", []) + self.data.get("stacks", []) +
+                  self.data.get("docs_widgets", []) +
+                  [self.data.get(k, {}) for k in ("statsplus", "notes", "media")])
+        return (self.data.get("theme_preset") == "Wallpaper" or
+                any((b.get("theme_override") or {}).get("__preset__") == "Wallpaper" for b in blocks))
+
+    def _check_wallpaper(self):
+        """Follow the wallpaper: rebuild the theme when the picture changes."""
+        try:
+            if self.uses_wallpaper_theme():
+                from desktop_widgets.services import wallpaper
+                sig = wallpaper.signature()
+                if sig and sig != self._wall_sig:
+                    first = self._wall_sig is None
+                    self._wall_sig = sig
+                    live = wallpaper.theme()
+                    if live is not None and self.data.get("theme_preset") == "Wallpaper":
+                        changed = self.data.get("theme") != live.to_dict()
+                        self.data["theme"] = live.to_dict()
+                        if changed:
+                            config.save(self.data)
+                    if not first or live is not None:
+                        self.apply_theme()
+        except Exception as exc:
+            print(f"[wallpaper] {exc}")
+        self.root.after(15000, self._check_wallpaper)
 
     # ── Widget creation ────────────────────────────────────
 
@@ -121,6 +159,174 @@ class Manager:
         gw.bind_events()
         self.wins[g["id"]] = gw
         return gw
+
+    def _create_stack(self, st: dict) -> StackWidget:
+        sw = StackWidget(self, st)
+        sw.bind_events()
+        self.stack_wins[st["id"]] = sw
+        return sw
+
+    def all_widgets(self) -> list:
+        """Every widget window on the desktop."""
+        return (list(self.wins.values()) + list(self.stack_wins.values()) +
+                [w for w in (self.statsplus_win, self.notes_win, self.media_win) if w] +
+                list(self.docs_wins.values()))
+
+    # ── Folder stacks ──────────────────────────────────────
+
+    def stacked_ids(self) -> set:
+        return {gid for st in self.data.get("stacks", []) for gid in st.get("groups", [])}
+
+    def stack_of(self, gid: int) -> dict | None:
+        return next((st for st in self.data.get("stacks", []) if gid in st.get("groups", [])), None)
+
+    def group_widget(self, gid):
+        """The widget showing folder `gid`: its own window or the stack holding it."""
+        if gid in self.wins:
+            return self.wins[gid]
+        st = self.stack_of(gid)
+        return self.stack_wins.get(st["id"]) if st else None
+
+    def _refresh_group(self, gid) -> None:
+        gw = self.group_widget(gid)
+        if gw:
+            gw._refresh_size(); gw.redraw()
+
+    def create_stack(self, name: str, gids: list[int]) -> None:
+        """Put existing folders into a new stack, where the first one was."""
+        gids = [gid for gid in gids if gid not in self.stacked_ids()]
+        if not gids:
+            return
+        first = next(g for g in self.data["groups"] if g["id"] == gids[0])
+        gw = self.wins.get(gids[0])
+        x, y = (gw._win_x(), gw._win_y()) if gw else (first.get("x", 60), first.get("y", 60))
+        cols = max((g.get("cols", 5) for g in self.data["groups"] if g["id"] in gids), default=5)
+        st = {"id": self.data["next_id"], "name": name, "groups": gids, "active": 0,
+              "cols": cols, "x": x, "y": y, "collapsed": False, "theme_override": None}
+        self.data["next_id"] += 1
+        self.data.setdefault("stacks", []).append(st)
+        for gid in gids:
+            if gid in self.wins:
+                self.wins.pop(gid).destroy()
+        config.save(self.data)
+        self._create_stack(st)
+
+    def add_to_stack(self, gid: int, sid: int) -> None:
+        st = next((s for s in self.data.get("stacks", []) if s["id"] == sid), None)
+        if not st or gid in self.stacked_ids():
+            return
+        st["groups"].append(gid)
+        st["active"] = len(st["groups"]) - 1
+        if gid in self.wins:
+            self.wins.pop(gid).destroy()
+        config.save(self.data)
+        self._refresh_group(gid)
+
+    def take_out_of_stack(self, gid: int) -> None:
+        """Give a folder its own widget again, next to the stack."""
+        st = self.stack_of(gid)
+        if not st:
+            return
+        sw = self.stack_wins.get(st["id"])
+        st["groups"].remove(gid)
+        st["active"] = max(0, min(st.get("active", 0), len(st["groups"]) - 1))
+        group = next(g for g in self.data["groups"] if g["id"] == gid)
+        if sw:
+            x, y, w, h = sw.rect()
+            group["x"], group["y"] = x + w + MARGIN, y
+        group["collapsed"] = False
+        if not st["groups"]:
+            self._drop_stack(st)
+        elif sw:
+            sw._refresh_size(); sw.redraw()
+        config.save(self.data)
+        self._create_group(group)
+
+    def unstack(self, sid: int) -> None:
+        st = next((s for s in self.data.get("stacks", []) if s["id"] == sid), None)
+        if not st:
+            return
+        sw = self.stack_wins.get(sid)
+        x, y = (sw._win_x(), sw._win_y()) if sw else (st.get("x", 60), st.get("y", 60))
+        gids = list(st["groups"])
+        self._drop_stack(st)
+        for i, gid in enumerate(gids):
+            group = next((g for g in self.data["groups"] if g["id"] == gid), None)
+            if group:
+                group["x"], group["y"], group["collapsed"] = x + 24 * i, y + 24 * i, False
+                self._create_group(group)
+        config.save(self.data)
+
+    def _drop_stack(self, st: dict) -> None:
+        sw = self.stack_wins.pop(st["id"], None)
+        if sw:
+            sw.destroy()
+        self.data["stacks"] = [s for s in self.data.get("stacks", []) if s is not st]
+
+    def rename_stack(self, st: dict) -> None:
+        t = config.get_theme(self.data)
+        name = ask_string(self.root, "Rename stack", "Stack name", initial=st["name"], theme=t)
+        if name and name.strip():
+            st["name"] = name.strip()
+            config.save(self.data)
+            if st["id"] in self.stack_wins:
+                self.stack_wins[st["id"]].redraw()
+
+    def new_stack_folder(self, st: dict) -> None:
+        """A new, empty folder created straight inside a stack."""
+        t = config.get_theme(self.data)
+        name = ask_string(self.root, "New folder", "Folder name", theme=t)
+        if not name or not name.strip():
+            return
+        g = {"id": self.data["next_id"], "name": name.strip(), "apps": [], "x": 60, "y": 60,
+             "cols": st.get("cols", 5), "collapsed": False, "theme_override": None}
+        self.data["next_id"] += 1
+        self.data["groups"].append(g)
+        st["groups"].append(g["id"])
+        st["active"] = len(st["groups"]) - 1
+        config.save(self.data)
+        self._refresh_group(g["id"])
+
+    def move_in_stack(self, gid: int, step: int) -> None:
+        st = self.stack_of(gid)
+        if not st:
+            return
+        ids = st["groups"]
+        i = ids.index(gid)
+        j = max(0, min(len(ids) - 1, i + step))
+        ids[i], ids[j] = ids[j], ids[i]
+        st["active"] = j
+        config.save(self.data)
+        self._refresh_group(gid)
+
+    def new_stack_dialog(self, preselect: int | None = None) -> None:
+        from desktop_widgets.ui.stack_dialog import StackDialog
+        StackDialog(self, preselect)
+
+    def stack_ctx(self, e: tk.Event, st: dict) -> None:
+        m = self._menu()
+        m.add_command(label="➕  New folder in this stack", command=lambda: self.new_stack_folder(st))
+        m.add_command(label="✎  Rename stack", command=lambda: self.rename_stack(st))
+        m.add_command(label="📂  Unstack all folders", command=lambda: self.unstack(st["id"]))
+        m.add_command(label="✨  Organize folders…", command=self.open_organizer)
+        m.add_separator()
+        m.add_command(label="⚙  Settings", command=lambda: self.open_settings("widgets"))
+        m.add_command(label="⏻  Quit", command=self._quit)
+        m.tk_popup(e.x_root, e.y_root)
+
+    def stack_tab_ctx(self, e: tk.Event, st: dict, group: dict) -> None:
+        gid = group["id"]
+        ids = st["groups"]
+        m = self._menu()
+        m.add_command(label="✎  Rename folder", command=lambda: self.rename_group(group))
+        if ids.index(gid) > 0:
+            m.add_command(label="Move left", command=lambda: self.move_in_stack(gid, -1))
+        if ids.index(gid) < len(ids) - 1:
+            m.add_command(label="Move right", command=lambda: self.move_in_stack(gid, 1))
+        m.add_command(label="↗  Take out of stack", command=lambda: self.take_out_of_stack(gid))
+        m.add_separator()
+        m.add_command(label="✕  Delete folder", command=lambda: self.delete_group(gid))
+        m.tk_popup(e.x_root, e.y_root)
 
     # ── All rects (for snapping / reflow) ─────────────────
 
@@ -140,6 +346,10 @@ class Manager:
             gw.win.geometry(f"{gw.W}x{gw.H}")
             gw.cv.config(width=gw.W, height=gw.H)
             gw.redraw()
+
+        for sw in self.stack_wins.values():
+            if not sw._collapsed:
+                sw._refresh_size(); sw.redraw()
 
         for dw in self.docs_wins.values():
             if dw._collapsed: continue
@@ -174,6 +384,15 @@ class Manager:
             gw._refresh_size()
             gw.redraw()
 
+    def set_stack_cols(self, sid: int, cols: int) -> None:
+        st = next((s for s in self.data.get("stacks", []) if s["id"] == sid), None)
+        if not st: return
+        st["cols"] = max(1, min(12, cols))
+        config.save(self.data)
+        sw = self.stack_wins.get(sid)
+        if sw:
+            sw._refresh_size(); sw.redraw()
+
     def set_docs_cols(self, did: int, cols: int) -> None:
         """Change column count for a docs widget and refresh its size."""
         cols = max(1, min(8, cols))
@@ -188,17 +407,7 @@ class Manager:
             dw.redraw()
 
     def all_rects(self, exclude=None) -> list[tuple[int,int,int,int]]:
-        rects = []
-        for gw in self.wins.values():
-            if gw is exclude: continue
-            rects.append(gw.rect())
-        for w in [self.statsplus_win, self.notes_win, self.media_win]:
-            if w and w is not exclude:
-                rects.append(w.rect())
-        for dw in self.docs_wins.values():
-            if dw is not exclude:
-                rects.append(dw.rect())
-        return rects
+        return [w.rect() for w in self.all_widgets() if w is not exclude]
 
     def reflow_after_resize(self, changed_widget, old_h: int, new_h: int) -> None:
         """
@@ -215,11 +424,7 @@ class Manager:
         from desktop_widgets.services.screens import area_for, clamp
         area = area_for(self.root, cx, cy, cw, ch)
 
-        all_widgets = (
-            list(self.wins.values()) +
-            [w for w in [self.statsplus_win, self.notes_win, self.media_win] if w] +
-            list(self.docs_wins.values())
-        )
+        all_widgets = self.all_widgets()
 
         below = []
         for w in all_widgets:
@@ -270,11 +475,7 @@ class Manager:
         # Old bottom before the size change (H is already updated, delta = new−old)
         old_bottom = cy + ch - delta
 
-        all_widgets = (
-            list(self.wins.values()) +
-            [w for w in [self.statsplus_win, self.notes_win, self.media_win] if w] +
-            list(self.docs_wins.values())
-        )
+        all_widgets = self.all_widgets()
 
         # Collect candidates: x-overlapping widgets strictly below changed widget
         below = []
@@ -316,7 +517,9 @@ class Manager:
 
     def add_app(self, gid: int) -> None:
         from desktop_widgets.ui.app_picker import AppPicker
-        group = next((g for g in self.data['groups'] if g['id'] == gid), {})
+        group = next((g for g in self.data['groups'] if g['id'] == gid), None)
+        if group is None:
+            return
         AppPicker(self, lambda entries: self.add_app_entries(gid, entries), group.get('name'))
 
     def add_app_entries(self, gid, entries):
@@ -334,10 +537,7 @@ class Manager:
                                                       'icon_path': entry.get('icon_path')}
                 existing.add(key)
         config.save(self.data)
-        gw = self.wins.get(gid)
-        if gw:
-            gw._refresh_size()
-            gw.redraw()
+        self._refresh_group(gid)
 
     def remove_app(self, path: str, gid: int) -> None:
         t = config.get_theme(self.data)
@@ -347,8 +547,7 @@ class Manager:
         if group:
             group["apps"] = [a for a in group["apps"] if a["path"] != path]
         config.save(self.data)
-        gw = self.wins.get(gid)
-        if gw: gw._refresh_size(); gw.redraw()
+        self._refresh_group(gid)
 
     # ── Cross-widget drag helpers ──────────────────────────
 
@@ -356,8 +555,11 @@ class Manager:
                               exclude_gid: int | None = None
                               ) -> "GroupWidget | None":
         """Return the GroupWidget whose window contains the screen point (x_root, y_root)."""
-        for gid, gw in self.wins.items():
-            if gid == exclude_gid:
+        targets = list(self.wins.items()) + [(None, sw) for sw in self.stack_wins.values()]
+        for gid, gw in targets:
+            if gid is not None and gid == exclude_gid:
+                continue
+            if gid is None and gw.group.get("id") in (None, exclude_gid):
                 continue
             try:
                 wx = gw._win_x(); wy = gw._win_y()
@@ -376,9 +578,7 @@ class Manager:
         src_group["apps"] = [a for a in src_group["apps"] if a["path"] != app["path"]]
         dst_gw.group["apps"].append(app)
         config.save(self.data)
-        src_gw = self.wins.get(src_gid)
-        if src_gw:
-            src_gw._refresh_size(); src_gw.redraw()
+        self._refresh_group(src_gid)
         dst_gw._refresh_size(); dst_gw.redraw()
 
     def send_app_to_desktop(self, app: dict, src_gid: int) -> None:
@@ -393,9 +593,7 @@ class Manager:
             src_group["apps"] = [a for a in src_group["apps"]
                                   if a["path"] != app["path"]]
         config.save(self.data)
-        src_gw = self.wins.get(src_gid)
-        if src_gw:
-            src_gw._refresh_size(); src_gw.redraw()
+        self._refresh_group(src_gid)
 
     # ── Group management ───────────────────────────────────
 
@@ -432,6 +630,14 @@ class Manager:
         if gid in self.wins:
             self.wins[gid].destroy(); del self.wins[gid]
         self.data["groups"] = [g for g in self.data["groups"] if g["id"] != gid]
+        st = self.stack_of(gid)
+        if st:
+            st["groups"].remove(gid)
+            st["active"] = max(0, min(st.get("active", 0), len(st["groups"]) - 1))
+            if not st["groups"]:
+                self._drop_stack(st)
+            elif st["id"] in self.stack_wins:
+                self.stack_wins[st["id"]]._refresh_size(); self.stack_wins[st["id"]].redraw()
         config.save(self.data)
 
     def rename_group(self, group: dict) -> None:
@@ -441,7 +647,7 @@ class Manager:
         if name and name.strip():
             group["name"] = name.strip()
             config.save(self.data)
-            gw = self.wins.get(group["id"])
+            gw = self.group_widget(group["id"])
             if gw: gw.redraw()
 
     def clear_group(self, gid: int) -> None:
@@ -453,15 +659,239 @@ class Manager:
             "(Files will not be deleted.)", theme=t): return
         group["apps"] = []
         config.save(self.data)
-        gw = self.wins.get(gid)
-        if gw: gw._refresh_size(); gw.redraw()
+        self._refresh_group(gid)
 
 
-    # ── Focus overlay ──────────────────────────────────────
+    # ── Quick launcher ─────────────────────────────────────
 
-    def open_focus(self, group: dict) -> None:
-        if self.focus: self.focus.close()
-        self.focus = FocusOverlay(self, group)
+    def toggle_launcher(self) -> None:
+        if self.launcher:
+            self.launcher.close()
+            return
+        from desktop_widgets.ui.launcher import Launcher
+        self.launcher = Launcher(self)
+
+    def set_launcher_hotkey(self, label: str) -> bool:
+        self.data["launcher_hotkey"] = label
+        config.save(self.data)
+        return self.hotkey.set(None if label == "Off" else label)
+
+    def launch(self, path: str) -> None:
+        """Start an app and remember it for Recent and ranking in the launcher."""
+        from desktop_widgets.services.search import record_launch
+        record_launch(self.data, path)
+        config.save(self.data)
+        launch_app(path)
+
+    # ── Organize folders ───────────────────────────────────
+
+    def open_organizer(self) -> None:
+        from desktop_widgets.ui.organize_screen import OrganizeScreen
+        OrganizeScreen(self)
+
+    def apply_organize(self, plan: dict, chosen: set) -> int:
+        """Carry out the ticked suggestions. The folders as they were are kept
+        in data["organize_undo"] so the whole change can be undone."""
+        import copy
+        from desktop_widgets.services.organize import CATEGORIES
+        self.data["organize_undo"] = {"groups": copy.deepcopy(self.data["groups"]),
+                                      "stacks": copy.deepcopy(self.data.get("stacks", [])),
+                                      "next_id": self.data["next_id"]}
+        groups = {g["id"]: g for g in self.data["groups"]}
+        touched, done = set(), 0
+
+        def take(gid, path):
+            g = groups.get(gid)
+            if not g:
+                return None
+            app = next((a for a in g["apps"] if a["path"] == path), None)
+            if app:
+                g["apps"].remove(app)
+                touched.add(gid)
+            return app
+
+        def put(gid, app):
+            g = groups[gid]
+            if all(os.path.normcase(a["path"]) != os.path.normcase(app["path"]) for a in g["apps"]):
+                g["apps"].append(app)
+            touched.add(gid)
+
+        for kind in ("duplicates", "broken", "not_installed"):
+            for item in plan.get(kind, []):
+                if item["id"] in chosen and take(item["gid"], item["app"]["path"]):
+                    done += 1
+        for item in plan.get("names", []):
+            if item["id"] in chosen:
+                app = next((a for a in groups[item["gid"]]["apps"] if a["path"] == item["app"]["path"]), None)
+                if app:
+                    app["name"] = item["new"]; touched.add(item["gid"]); done += 1
+        for item in plan.get("moves", []):
+            if item["id"] in chosen and item["to"] in groups:
+                app = take(item["gid"], item["app"]["path"])
+                if app:
+                    put(item["to"], app); done += 1
+        new_groups = []
+        for item in plan.get("new_folders", []):
+            if item["id"] not in chosen:
+                continue
+            names = {g["name"].casefold() for g in self.data["groups"]}
+            name, n = item["name"], 2
+            while name.casefold() in names:
+                name, n = f"{item['name']} {n}", n + 1
+            first = groups.get(item["apps"][0]["gid"]) if item["apps"] else None
+            src = self.group_widget(first["id"]) if first else None
+            x, y = ((src.rect()[0] + src.rect()[2] + MARGIN, src.rect()[1]) if src else (60, 60))
+            g = {"id": self.data["next_id"], "name": name, "apps": [], "x": x, "y": y,
+                 "cols": 4, "collapsed": False, "theme_override": None}
+            self.data["next_id"] += 1
+            self.data["groups"].append(g)
+            groups[g["id"]] = g
+            for member in item["apps"]:
+                app = take(member["gid"], member["app"]["path"])
+                if app:
+                    put(g["id"], app); done += 1
+            sources = {self.stack_of(m["gid"])["id"] if self.stack_of(m["gid"]) else None
+                       for m in item["apps"]}
+            new_groups.append((g, sources.pop() if len(sources) == 1 else None))
+        for item in plan.get("empty", []):
+            if item["id"] in chosen and item["gid"] in groups and not groups[item["gid"]]["apps"]:
+                self._remove_group(item["gid"]); done += 1
+        config.save(self.data)
+        for g, sid in new_groups:
+            if sid is not None:
+                self.add_to_stack(g["id"], sid)
+            else:
+                self._create_group(g)
+        for gid in touched:
+            if gid in groups and any(x["id"] == gid for x in self.data["groups"]):
+                self._refresh_group(gid)
+        return done
+
+    def undo_organize(self) -> None:
+        undo = self.data.pop("organize_undo", None)
+        if not undo:
+            return
+        self.data["groups"] = undo["groups"]
+        self.data["stacks"] = undo["stacks"]
+        self.data["next_id"] = max(self.data["next_id"], undo["next_id"])
+        config.save(self.data)
+        self._rebuild_folders()
+
+    def _remove_group(self, gid: int) -> None:
+        """Delete a folder without asking (callers have confirmed)."""
+        if gid in self.wins:
+            self.wins.pop(gid).destroy()
+        self.data["groups"] = [g for g in self.data["groups"] if g["id"] != gid]
+        st = self.stack_of(gid)
+        if st:
+            st["groups"].remove(gid)
+            st["active"] = max(0, min(st.get("active", 0), len(st["groups"]) - 1))
+            if not st["groups"]:
+                self._drop_stack(st)
+            elif st["id"] in self.stack_wins:
+                self.stack_wins[st["id"]]._refresh_size(); self.stack_wins[st["id"]].redraw()
+
+    def _rebuild_folders(self) -> None:
+        """Recreate every folder and stack widget from the data."""
+        for w in list(self.wins.values()) + list(self.stack_wins.values()):
+            w.destroy()
+        self.wins.clear(); self.stack_wins.clear()
+        stacked = self.stacked_ids()
+        for g in self.data["groups"]:
+            if g["id"] not in stacked:
+                self._create_group(g)
+        for st in self.data.get("stacks", []):
+            self._create_stack(st)
+
+    # ── Layouts ────────────────────────────────────────────
+
+    def save_layout(self, name: str) -> None:
+        from desktop_widgets.services import layouts
+        layouts.save(self.data, name.strip())
+        config.save(self.data)
+
+    def save_layout_dialog(self) -> None:
+        t = config.get_theme(self.data)
+        n = len(self.data.get("layouts", [])) + 1
+        name = ask_string(self.root, "Save layout", "Layout name",
+                          initial=f"Layout {n}" if n > 1 else "Main", theme=t)
+        if name and name.strip():
+            from desktop_widgets.services import layouts
+            if layouts.find(self.data, name.strip()) and not ask_confirm(
+                    self.root, f"Replace the saved layout '{name.strip()}' with this one?", theme=t):
+                return
+            self.save_layout(name)
+
+    def apply_layout(self, name: str) -> None:
+        """Move every widget to the layout's spots and switch widgets on or off."""
+        from desktop_widgets.services import layouts
+        layout = layouts.find(self.data, name)
+        if not layout:
+            return
+        layouts.apply_to_data(self.data, layout)
+        self.data["active_layout"] = layout["name"]
+        if self.data.get("theme_preset") == "Wallpaper":     # today's wallpaper, not the saved one
+            from desktop_widgets.services import wallpaper
+            live = wallpaper.theme()
+            if live is not None:
+                self.data["theme"] = live.to_dict()
+        for key, widget, create in (("statsplus", self.statsplus_win, StatsPlusWidget),
+                                    ("notes", self.notes_win, NotesWidget),
+                                    ("media", self.media_win, MediaWidget)):
+            enabled = self.data.get(key, {}).get("enabled")
+            if enabled and not widget:
+                setattr(self, f"{key}_win", create(self))
+            elif not enabled and widget:
+                widget.destroy()
+                setattr(self, f"{key}_win", None)
+        blocks = {}
+        for gid, gw in self.wins.items():
+            blocks[gw] = gw.group
+        for sw in self.stack_wins.values():
+            blocks[sw] = sw.stack
+        for dw in self.docs_wins.values():
+            blocks[dw] = dw._blk
+        for key in ("statsplus", "notes", "media"):
+            widget = getattr(self, f"{key}_win")
+            if widget:
+                blocks[widget] = self.data[key]
+        for widget, blk in blocks.items():
+            widget._collapsed = bool(blk.get("collapsed"))
+            widget.restore_home()
+        config.save(self.data)
+        self.apply_theme()
+
+    def delete_layout(self, name: str) -> None:
+        self.data["layouts"] = [l for l in self.data.get("layouts", []) if l["name"] != name]
+        if self.data.get("active_layout") == name:
+            self.data["active_layout"] = None
+        config.save(self.data)
+
+    def rename_layout(self, name: str) -> None:
+        from desktop_widgets.services import layouts
+        layout = layouts.find(self.data, name)
+        if not layout:
+            return
+        t = config.get_theme(self.data)
+        new = ask_string(self.root, "Rename layout", "Layout name", initial=name, theme=t)
+        if new and new.strip() and not layouts.find(self.data, new.strip()):
+            layout["name"] = new.strip()
+            if self.data.get("active_layout") == name:
+                self.data["active_layout"] = layout["name"]
+            config.save(self.data)
+
+    def layouts_menu(self, x: int, y: int) -> None:
+        m = self._menu()
+        active = self.data.get("active_layout")
+        for layout in self.data.get("layouts", []):
+            mark = "\u2713  " if layout["name"] == active else "\U0001F5A5  "
+            m.add_command(label=f"{mark}{layout['name']}",
+                          command=lambda n=layout["name"]: self.apply_layout(n))
+        if self.data.get("layouts"):
+            m.add_separator()
+        m.add_command(label="\u2795  Save current layout\u2026", command=self.save_layout_dialog)
+        m.add_command(label="\u2699  Manage layouts", command=lambda: self.open_settings("widgets"))
+        m.tk_popup(x, y)
 
     # ── Settings ───────────────────────────────────────────
 
@@ -511,21 +941,13 @@ class Manager:
 
     def apply_theme(self) -> None:
         """Redraw all widgets after a theme change."""
-        for gw in self.wins.values():
-            gw.redraw()
-        for w in [self.statsplus_win, self.notes_win, self.media_win]:
-            if w: w.redraw()
-        for dw in self.docs_wins.values():
-            dw.redraw()
+        for w in self.all_widgets():
+            w.redraw()
         if self.tray_bar: self.tray_bar.redraw()
         # Push font to notes text widget live
-        ui_font = self.data.get("ui_font", "Segoe UI")
+        from desktop_widgets.theme import ui_font as _uf; ui_font = _uf(self.data)
         if self.notes_win and self.notes_win._text_widget:
             try: self.notes_win._text_widget.configure(font=(ui_font, 10))
-            except Exception: pass
-        # Keep focus overlay in sync
-        if self.focus:
-            try: self.focus._apply_theme()
             except Exception: pass
 
     # ── Stats+ ─────────────────────────────────────────────
@@ -631,29 +1053,15 @@ class Manager:
 
     def lift_widgets(self) -> None:
         """Bring all widget windows to the front temporarily (e.g. for dialogs)."""
-        for gw in self.wins.values():
-            try: gw.win.lift()
+        for w in self.all_widgets():
+            try: w.win.lift()
             except: pass
-        for dw in self.docs_wins.values():
-            try: dw.win.lift()
-            except: pass
-        for w in [self.statsplus_win, self.notes_win, self.media_win]:
-            if w:
-                try: w.win.lift()
-                except: pass
 
     def push_widgets(self) -> None:
         """Push all widgets back to desktop level."""
-        for gw in self.wins.values():
-            try: push_desktop(gw.win.winfo_id())
+        for w in self.all_widgets():
+            try: push_desktop(w.win.winfo_id())
             except: pass
-        for dw in self.docs_wins.values():
-            try: push_desktop(dw.win.winfo_id())
-            except: pass
-        for w in [self.statsplus_win, self.notes_win, self.media_win]:
-            if w:
-                try: push_desktop(w.win.winfo_id())
-                except: pass
 
     # ── Context menus ──────────────────────────────────────
 
@@ -663,10 +1071,15 @@ class Manager:
 
     def group_ctx(self, e: tk.Event, group: dict) -> None:
         m = self._menu()
-        m.add_command(label="⤢  Open focus", command=lambda: self.open_focus(group))
-        m.add_separator()
         m.add_command(label="✎  Rename",       command=lambda: self.rename_group(group))
         m.add_command(label="🗑  Clear all",   command=lambda: self.clear_group(group["id"]))
+        m.add_separator()
+        for st in self.data.get("stacks", []):
+            m.add_command(label=f"📁  Add to stack '{st['name']}'",
+                          command=lambda sid=st["id"]: self.add_to_stack(group["id"], sid))
+        m.add_command(label="📁  Stack with other folders…",
+                      command=lambda: self.new_stack_dialog(group["id"]))
+        m.add_command(label="✨  Organize folders…", command=self.open_organizer)
         m.add_separator()
         m.add_command(label="✕  Delete widget", command=lambda: self.delete_group(group["id"]))
         m.add_separator()
@@ -677,7 +1090,7 @@ class Manager:
 
     def app_ctx(self, path: str, name: str, gid: int) -> None:
         m = self._menu()
-        m.add_command(label=f"▶  Launch {name}", command=lambda: launch_app(path))
+        m.add_command(label=f"▶  Launch {name}", command=lambda: self.launch(path))
         m.add_separator()
         m.add_command(label="✎  Rename", command=lambda: self.rename_app(path, gid))
         m.add_command(label="◈  Change icon", command=lambda: self.change_app_icon(path, gid))
@@ -694,7 +1107,7 @@ class Manager:
         if name and name.strip():
             app["name"] = name.strip()
             config.save(self.data)
-            gw = self.wins.get(gid)
+            gw = self.group_widget(gid)
             if gw: gw.redraw()
 
     def change_app_icon(self, path: str, gid: int) -> None:
@@ -711,8 +1124,9 @@ class Manager:
         from desktop_widgets.utils import clear_icon_cache
         clear_icon_cache(path)
         config.save(self.data)
-        if gid in self.wins:
-            self.wins[gid].redraw()
+        gw = self.group_widget(gid)
+        if gw:
+            gw.redraw()
 
     # ── System tray ────────────────────────────────────────
 
@@ -729,13 +1143,15 @@ class Manager:
         self.tray.run()
 
     def _tray_show(self, *_) -> None:
-        self.root.after(0, lambda: [gw.win.deiconify() for gw in self.wins.values()])
+        self.root.after(0, lambda: [w.win.deiconify() for w in self.all_widgets()])
 
     def _tray_quit(self, *_) -> None:
         if self.tray: self.tray.stop()
         self.root.after(0, self._quit)
 
     def _quit(self) -> None:
+        try: self.hotkey.stop()
+        except Exception: pass
         if self.tray:
             try: self.tray.stop()
             except: pass

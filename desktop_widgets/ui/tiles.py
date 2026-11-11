@@ -1,4 +1,4 @@
-"""App tiles shared by folder widgets and the focus view.
+"""App tiles shared by folder widgets, stacks and the app picker.
 
 Each tile (background, border, soft shadow and icon) is rendered as one
 supersampled PIL image composited onto the widget background, the same way
@@ -193,7 +193,7 @@ _color_cache: dict[tuple, str] = {}
 
 
 def icon_color(app: dict, fallback: str) -> str:
-    """The icon's most vivid colour, for tinting its tile and the focus view."""
+    """The icon's most vivid colour, used as a tint colour."""
     import colorsys
     key = (app.get('path'), app.get('icon_path'))
     if key not in _color_cache:
@@ -230,10 +230,10 @@ def tile_photo(master, app: dict, theme, width: int, height: int, icon_size: int
                icon_y: int, state: str = 'idle', radius: int = 12, tint: str | None = None,
                transparent: bool = False):
     """A finished tile as a PhotoImage. state: idle | hover | drag | target.
-    tint: the icon's own colour, washed into the tile behind the icon.
-    transparent: rounded corners show what is underneath (the widget's glow)."""
+    tint: unused (kept for callers); tiles are neutral in the Windows 11 look.
+    transparent: the tile has no background of its own outside its fill."""
     key = (app.get('path'), app.get('icon_path'), width, height, icon_size, icon_y, state, radius,
-           theme.bg, theme.btn, theme.hov, theme.border, theme.accent, tint, transparent)
+           theme.bg, theme.btn, theme.txt, theme.accent, transparent, 'fluent-1')
     tiles = root_cache(master, '_dw_tiles')
     if key in tiles:
         tiles.move_to_end(key)
@@ -245,42 +245,45 @@ def tile_photo(master, app: dict, theme, width: int, height: int, icon_size: int
         return photo
     S = SCALE
     W, H = width*S, height*S
-    image = Image.new('RGBA', (W, H), _rgb(theme.btn) + (0,) if transparent else _rgb(theme.bg) + (255,))
+    base = theme.btn if transparent else theme.bg
+    image = Image.new('RGBA', (W, H), _rgb(base) + (0,) if transparent else _rgb(theme.bg) + (255,))
     draw = ImageDraw.Draw(image)
-    hover = state in ('hover', 'drag')
+    # Windows 11 grid items: flat at rest, a soft fill under the pointer and
+    # an accent ring when selected or targeted by a drag.
+    hover = state in ('hover', 'drag', 'selected_hover')
     selected = state in ('selected', 'selected_hover')
-    lifted = hover or state == 'selected_hover'
-    fill = _mix(theme.hov, theme.accent, 0.14) if hover or selected else _rgb(theme.btn)
-    if hover:   # soft accent glow behind the lifted tile
-        image.alpha_composite(soft_glow(W, H, [(theme.accent, 70, (3*S, 4*S, W-3*S, H-S))], 6*S))
-    ringed = state in ('hover', 'drag', 'target', 'selected', 'selected_hover')
-    outline = _rgb(theme.accent) if ringed else _mix(theme.border, theme.btn, 0.35)
-    border = 2*S if ringed else S
-    draw.rounded_rectangle((S, S, W-S-1, H-S-1), radius=radius*S, fill=fill,
-                           outline=outline, width=border)
-    if tint:   # icon-coloured light from the top, stronger on hover
-        light = soft_glow(W, H, [(tint, 95 if lifted or selected else 58, (W*0.08, -H*0.55, W*0.92, H*0.62))], 14*S)
-        inside = Image.new('L', (W, H))
-        ImageDraw.Draw(inside).rounded_rectangle((S*2, S*2, W-S*2-1, H-S*2-1), radius=radius*S, fill=255)
-        light.putalpha(Image.composite(light.getchannel('A'), Image.new('L', (W, H)), inside))
-        image.alpha_composite(light)
-        draw = ImageDraw.Draw(image)
+    fill = None
+    if hover or selected or state == 'target':
+        fill = _mix(theme.bg, theme.txt, 0.09 if hover else 0.06)
+    if state == 'drag':
+        fill = _mix(theme.bg, theme.txt, 0.12)
+    if fill:
+        ring = selected or state == 'target'
+        draw.rounded_rectangle((0, 0, W-1, H-1), radius=radius*S, fill=fill,
+                               outline=_rgb(theme.accent) if ring else _mix(theme.bg, theme.txt, 0.14),
+                               width=2*S if ring else S)
     if state == 'target':
-        draw.rounded_rectangle((S*4, S*10, S*7, H-S*10), radius=S*2, fill=_rgb(theme.accent))
+        draw.rounded_rectangle((S*3, S*12, S*6, H-S*12), radius=S*2, fill=_rgb(theme.accent))
 
-    lift = -2 if lifted else 0
-    size = round(icon_size * (1.08 if lifted else 1.0))
+    size = icon_size
     icon = icon_image(app, icon_size*2, theme.accent).resize((size*S, size*S), Image.Resampling.LANCZOS)
-    cx, cy = W//2, (icon_y + lift)*S
-    # Soft drop shadow, blurred at 1x and scaled up (cheap, looks identical).
+    cx, cy = W//2, icon_y*S
+    # A faint contact shadow keeps light icons readable on light themes.
     shadow = Image.new('RGBA', (W//S, H//S))
     small_icon = icon.getchannel('A').resize((max(1, icon.width//S), max(1, icon.height//S)))
-    shadow.paste((0, 0, 0, 255), (cx//S - small_icon.width//2, cy//S - small_icon.height//2 + 3),
-                 small_icon.point(lambda a: a*0.45))
-    image.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(3)).resize((W, H), Image.BILINEAR))
+    shadow.paste((0, 0, 0, 255), (cx//S - small_icon.width//2, cy//S - small_icon.height//2 + 2),
+                 small_icon.point(lambda a: a*0.28))
+    image.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(2)).resize((W, H), Image.BILINEAR))
     image.alpha_composite(icon, (cx-icon.width//2, cy-icon.height//2))
+    if selected:      # check badge in the top-right corner
+        r = 8*S
+        bx, by = W - 12*S, 12*S
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((bx-r, by-r, bx+r, by+r), fill=_rgb(theme.accent))
+        draw.line([(bx-4*S, by), (bx-1*S, by+3*S), (bx+4*S, by-3*S)],
+                  fill=(0, 0, 0) if sum(_rgb(theme.accent)) > 450 else (255, 255, 255), width=int(1.6*S), joint='curve')
 
-    # Owned by the Tk root so tiles are reused across windows (focus view reopen).
+    # Owned by the Tk root so tiles are reused across windows.
     final = image.reduce(S)
     if state == 'idle':
         _store_tile(app, key, final)

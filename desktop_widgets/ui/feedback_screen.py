@@ -1,7 +1,7 @@
 """Occasional feedback card: a 1–5 rating and an optional comment."""
 import tkinter as tk
 from desktop_widgets import config
-from desktop_widgets.theme import CHROMA, TYPE
+from desktop_widgets.theme import CHROMA, TYPE, on_color
 from desktop_widgets.services import telemetry
 from desktop_widgets.services.screens import area_for
 from desktop_widgets.ui.components import paint_shell, RoundedButton
@@ -27,7 +27,7 @@ class FeedbackScreen:
         self.win.bind('<Escape>', lambda e: self.later())
         cv = tk.Canvas(self.win, bg=CHROMA, highlightthickness=0)
         cv.pack(fill='both', expand=True)
-        paint_shell(cv, width, height, t, 'How’s it going?', self.later, 'QUICK QUESTION')
+        paint_shell(cv, width, height, t, 'How’s it going?', self.later, 'Quick question')
 
         body = tk.Frame(self.win, bg=t.bg)
         body.place(x=26, y=100, width=width-52, height=height-100-84)
@@ -39,24 +39,24 @@ class FeedbackScreen:
         self._chips = {}
         for value, label in RATINGS:
             chip = RoundedButton(chips, label, lambda v=value: self.choose(v), t,
-                                 font=TYPE['label'], padx=12, pady=8)
+                                 padx=12, pady=6, pill=True)
             chip.pack(side='left', padx=(0, 6))
             self._chips[value] = chip
 
-        tk.Label(body, text='ANYTHING WE SHOULD CHANGE?  (optional)', bg=t.bg, fg=t.txt2,
-                 font=TYPE['meta']).pack(anchor='w', pady=(0, 6))
+        tk.Label(body, text='Anything we should change? (optional)', bg=t.bg, fg=t.txt,
+                 font=TYPE['body']).pack(anchor='w', pady=(0, 6))
         box = tk.Frame(body, bg=t.border)
         box.pack(fill='both', expand=True)
         self.text = tk.Text(box, bg=t.btn, fg=t.txt, insertbackground=t.txt,
-                            selectbackground=t.accent, selectforeground=t.bg,
+                            selectbackground=t.accent, selectforeground=on_color(t.accent),
                             font=TYPE['body'], relief='flat', wrap='word',
                             highlightthickness=0, padx=12, pady=10, height=5)
         self.text.pack(fill='both', expand=True, padx=1, pady=1)
 
         footer = tk.Frame(self.win, bg=t.bg)
         footer.place(x=26, y=height-70, width=width-52, height=46)
-        never = tk.Label(footer, text='Don’t ask again', bg=t.bg, fg=t.txt2,
-                         font=TYPE['caption'], cursor='hand2')
+        never = tk.Label(footer, text='Don’t ask again', bg=t.bg, fg=t.accent,
+                         font=TYPE['body'], cursor='hand2')
         never.pack(side='left')
         never.bind('<Button-1>', lambda e: self.never())
         self.send_button = RoundedButton(footer, 'Send feedback', self.send, t, accent=True)

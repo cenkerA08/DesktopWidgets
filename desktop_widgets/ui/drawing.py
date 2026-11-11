@@ -57,29 +57,14 @@ def rounded_image(w, h, radius, fill, outline='', border=1, corners='all', hard=
     return key_out(image) if hard else image
 
 
-def card(canvas, x, y, w, h, r, fill, outline, band_fill, band_h, glow=None):
-    """A widget's outer card with its header band, as one keyed-out image.
-
-    Drawing the band as a separate image over the corner would darken the
-    key colour again (see key_out), so both are rendered together.
-    glow: a colour for the soft corner light every widget shares (the media
-    widget's album-art wash is the model)."""
+def card(canvas, x, y, w, h, r, fill, outline, band_fill=None, band_h=0, glow=None):
+    """A widget's outer card as one keyed-out image: one flat surface with a
+    hairline border (Windows 11 has no header band and no glow)."""
     cache = canvas.__dict__.setdefault('_card_cache', {})
-    key = (int(w), int(h), r, fill, outline, band_fill, band_h, glow)
+    key = (int(w), int(h), r, fill, outline)
     if key not in cache:
-        scale = 3
-        base = rounded_image(w, h, r, fill, outline)
-        if band_fill and band_fill != fill and band_h > 0:
-            inner = rounded_image(w, h, r, band_fill, outline)
-            band_mask = Image.new('L', base.size)
-            band_mask.paste(255, (0, 0, base.width, min(base.height, int(band_h))))
-            base.paste(inner, (0, 0), band_mask)
-        if glow and h > band_h + 20:
-            light = corner_glow(base.width, base.height, glow, top=band_h)
-            light.putalpha(ImageChops.multiply(light.getchannel('A'), base.getchannel('A')))
-            base.alpha_composite(light)
         cache.clear()           # one live card per canvas
-        cache[key] = ImageTk.PhotoImage(key_out(base), master=canvas)
+        cache[key] = ImageTk.PhotoImage(key_out(rounded_image(w, h, r, fill, outline)), master=canvas)
     return canvas.create_image(x, y, image=cache[key], anchor='nw')
 
 
@@ -117,12 +102,7 @@ def panel_image(canvas, w, h, r, fill, outline, base, glow=None):
         # Transparent around the rounded corners: panels sit on the card, so
         # whatever is underneath (the corner glow) shows through cleanly.
         image = Image.new('RGBA', (int(w), int(h)), ImageColor.getrgb(outline)[:3] + (0,))
-        shape = rounded_image(w, h, r, fill, outline)
-        if glow:
-            light = corner_glow(int(w), int(h), glow, strength=55)
-            light.putalpha(ImageChops.multiply(light.getchannel('A'), shape.getchannel('A')))
-            shape.alpha_composite(light)
-        image.alpha_composite(shape)
+        image.alpha_composite(rounded_image(w, h, r, fill, outline))
         cache.clear()
         cache[key] = ImageTk.PhotoImage(image, master=canvas)
     return cache[key]
@@ -217,39 +197,43 @@ def recolor_shape(canvas, item, fill):
     canvas._shape_refs[item] = (photo, updated)
 
 
-def glyph_image(kind, color, size):
-    """Small antialiased UI glyphs: chevron_down, chevron_right, plus."""
-    scale = 4
-    s = size*scale
-    image = Image.new('RGBA', (s, s))
-    draw = ImageDraw.Draw(image)
-    width = max(2*scale, int(s*0.13))
-    pts = {'chevron_down':  [(0.28, 0.40), (0.50, 0.62), (0.72, 0.40)],
-           'chevron_right': [(0.40, 0.28), (0.62, 0.50), (0.40, 0.72)]}.get(kind)
-    if pts:
-        draw.line([(x*s, y*s) for x, y in pts], fill=color, width=width, joint='curve')
-        for x, y in (pts[0], pts[-1]):
-            r = width/2
-            draw.ellipse((x*s-r, y*s-r, x*s+r, y*s+r), fill=color)
-    elif kind == 'plus':
-        for box in ((0.26, 0.50, 0.74, 0.50), (0.50, 0.26, 0.50, 0.74)):
-            draw.line([(box[0]*s, box[1]*s), (box[2]*s, box[3]*s)], fill=color, width=width)
-        r = width/2
-        for x, y in ((0.26, 0.5), (0.74, 0.5), (0.5, 0.26), (0.5, 0.74)):
-            draw.ellipse((x*s-r, y*s-r, x*s+r, y*s+r), fill=color)
+def glyph(canvas, x, y, kind, color, size=16, tags=()):
+    """A Segoe Fluent Icons glyph centred on (x, y); size is in pixels."""
+    from desktop_widgets import theme
+    name = {'plus': 'add'}.get(kind, kind)
+    return canvas.create_text(x, y, text=theme.ICON.get(name, name), fill=color,
+                              font=(theme.ICON_FONT, -int(size)), anchor='center', tags=tags)
+
+
+_WIDGET_GLYPH = {'folder': 'folder', 'docs': 'document', 'notes': 'note',
+                 'statsplus': 'stats', 'media': 'music', 'stack': 'stack'}
+
+
+def icon_glyph_image(name, color, size):
+    """A Fluent icon glyph rendered with PIL (for off-screen images)."""
+    import os
+    from PIL import ImageFont
+    from desktop_widgets import theme
+    char = theme.ICON.get(name, name)
+    fonts = os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts')
+    S = 3
+    for file in (theme.PIL_ICONS, 'SegoeIcons.ttf', 'segmdl2.ttf'):
+        try:
+            font = ImageFont.truetype(os.path.join(fonts, file), int(size * S))
+            break
+        except OSError:
+            font = None
+    if font is None:
+        return None
+    image = Image.new('RGBA', (size * S, size * S))
+    ImageDraw.Draw(image).text((size * S / 2, size * S / 2), char, fill=color, font=font, anchor='mm')
     return image.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def glyph(canvas, x, y, kind, color, size=16, tags=()):
-    """Place a cached glyph centred on (x, y)."""
-    cache = canvas.__dict__.setdefault('_glyph_cache', {})
-    key = (kind, color, size)
-    if key not in cache:
-        cache[key] = ImageTk.PhotoImage(glyph_image(kind, color, size), master=canvas)
-    return canvas.create_image(x, y, image=cache[key], anchor='center', tags=tags)
-
-
 def widget_icon(kind, color, size=40):
+    image = icon_glyph_image(_WIDGET_GLYPH.get(kind, 'music'), color, size)
+    if image is not None:
+        return image
     scale = 3
     image = Image.new('RGBA', (48*scale, 48*scale))
     draw = ImageDraw.Draw(image)

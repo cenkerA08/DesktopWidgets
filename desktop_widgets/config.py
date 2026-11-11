@@ -54,6 +54,7 @@ def _default() -> dict:
             "theme_override": None,
         },
         "docs_widgets": [],   # list of {id, name, files, x, y, cols, collapsed, theme_override}
+        "stacks": [],         # list of {id, name, groups: [folder ids], active, cols, x, y, collapsed, theme_override}
         "network": {
             "enabled":  False,
             "x": 300, "y": 360, "w": 240, "h": 120,
@@ -66,9 +67,9 @@ def _default() -> dict:
             "collapsed": False,
             "theme_override": None,
         },
-        "corner_radius": 16,
-        "theme_preset": "Graphite",
-        "design_revision": 1,
+        "corner_radius": 8,
+        "theme_preset": "Dark",
+        "design_revision": 2,
         "resize_enabled": True,
         "tray_corner": "bottom_right",
     }
@@ -82,6 +83,29 @@ def _migrate(d: dict) -> dict:
         if d.get("theme_preset", "Dark Blue") == "Dark Blue":
             d["theme"] = Theme().to_dict()
             d["theme_preset"] = "Graphite"
+    if d.get("design_revision", 1) < 2:
+        # Windows 11 redesign: themes map to the new set, corners and icons
+        # follow the new defaults once (they stay adjustable in Settings).
+        from desktop_widgets.theme import LEGACY_PRESETS
+        def new_name(name):
+            if name in PRESETS and name not in LEGACY_PRESETS:
+                return name
+            return LEGACY_PRESETS.get(name, "Dark")
+        d["theme_preset"] = new_name(d.get("theme_preset", "Dark"))
+        d["theme"] = PRESETS[d["theme_preset"]].to_dict()
+        blocks = list(d.get("groups", [])) + list(d.get("docs_widgets", []))
+        blocks += [d[k] for k in ("statsplus", "notes", "media") if isinstance(d.get(k), dict)]
+        for blk in blocks:
+            override = blk.get("theme_override")
+            if override and override.get("__preset__"):
+                name = new_name(override["__preset__"])
+                blk["theme_override"] = {**PRESETS[name].to_dict(), "__preset__": name}
+            elif override:
+                blk["theme_override"] = None
+        d["corner_radius"] = 8
+        if d.get("icon_size") == 52:
+            d["icon_size"] = 48
+        d["design_revision"] = 2
     # Apps dropped from Explorer were saved with forward slashes, which
     # broke their icons. Normalise them once on load.
     from desktop_widgets.services.apps import normalize_path
@@ -152,6 +176,18 @@ def _migrate(d: dict) -> dict:
     else:
         d["media"].setdefault("collapsed", False)
         d["media"].setdefault("theme_override", None)
+    # Folder stacks: keep only folders that still exist, each in one stack.
+    ids, seen = {g.get("id") for g in d.get("groups", [])}, set()
+    stacks = []
+    for st in d.get("stacks", []):
+        st["groups"] = [gid for gid in st.get("groups", []) if gid in ids and gid not in seen]
+        seen.update(st["groups"])
+        if st["groups"]:
+            for key, value in (("name", "Stack"), ("active", 0), ("cols", 5), ("x", 60), ("y", 60),
+                               ("collapsed", False), ("theme_override", None)):
+                st.setdefault(key, value)
+            stacks.append(st)
+    d["stacks"] = stacks
     d["version"] = 3
     return d
 
@@ -192,7 +228,7 @@ def save(data: dict) -> None:
 
 def get_corner_radius(data: dict) -> int:
     """Return the global corner radius setting (0 = square, up to 16)."""
-    return max(0, min(24, int(data.get("corner_radius", 16))))
+    return max(0, min(24, int(data.get("corner_radius", 8))))
 
 
 def get_theme(data: dict, override: dict | None = None) -> Theme:
@@ -205,6 +241,14 @@ def get_theme(data: dict, override: dict | None = None) -> Theme:
     base = Theme.from_dict(data.get("theme", {}))
     if override:
         preset_name = override.get("__preset__")
+        from desktop_widgets.theme import LEGACY_PRESETS
+        if preset_name == "Wallpaper":
+            from desktop_widgets.services import wallpaper
+            live = wallpaper.theme()
+            if live is not None:
+                return live
+        if preset_name not in PRESETS:
+            preset_name = LEGACY_PRESETS.get(preset_name, preset_name)
         if preset_name and preset_name in PRESETS:
             return PRESETS[preset_name]
         # Legacy: manual key/value overrides (kept for backwards compat)

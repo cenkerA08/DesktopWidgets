@@ -65,11 +65,10 @@ def _lerp_color(a: str, b: str, t: float) -> str:
 
 
 def _metric_color(pct: float, t) -> str:
-    """Clear load colours: theme colour while relaxed, then warning, then danger.
-    (Blending between them produced muddy browns in the middle range.)"""
-    if pct < 0.6:
-        return t.ok
-    if pct < 0.85:
+    """Accent while relaxed, then caution, then critical (Windows 11 status colours)."""
+    if pct < 0.7:
+        return t.accent
+    if pct < 0.9:
         return t.warn
     return t.danger
 
@@ -86,13 +85,13 @@ def _font(name: str, size: int):
         return ImageFont.load_default()
 
 
-HERO_H = 136      # top card with the big number and live graph
-CARD_H = 78       # smaller cards for the remaining metrics
+HERO_H = 128      # top card with the big number and live graph
+CARD_H = 74       # smaller cards for the remaining metrics
 HISTORY = 60      # samples kept per metric (~90 s at 1.5 s per poll)
 
 
-def _area_chart(img, d, box, values, color, base_bg, S, line_w=2, glow=True):
-    """Filled area graph with a gradient under a smooth line, newest on the right."""
+def _area_chart(img, d, box, values, color, base_bg, S, line_w=2, dot=True):
+    """Filled area graph with a soft gradient under the line, newest on the right."""
     x1, y1, x2, y2 = box
     if len(values) < 2:
         values = list(values or [0.0]) * 2
@@ -102,85 +101,60 @@ def _area_chart(img, d, box, values, color, base_bg, S, line_w=2, glow=True):
     w, h = int(x2 - x1), int(y2 - y1)
     if w <= 0 or h <= 0:
         return
-    # Gradient fill: strong under the line, fading to nothing at the bottom.
     shade = Image.new("RGBA", (w, h))
     sd = ImageDraw.Draw(shade)
     for yy in range(h):
-        alpha = int(120 * (1 - yy / h) ** 1.6)
+        alpha = int(70 * (1 - yy / h) ** 1.4)
         sd.line([(0, yy), (w, yy)], fill=_hex_rgba(color, alpha))
     mask = Image.new("L", (w, h))
     ImageDraw.Draw(mask).polygon([(x - x1, y - y1) for x, y in pts] + [(w, h), (0, h)], fill=255)
     img.paste(shade, (int(x1), int(y1)), Image.composite(shade, Image.new("RGBA", (w, h)), mask).getchannel("A"))
     d.line(pts, fill=_hex_rgba(color), width=line_w * S, joint="curve")
-    if glow:
+    if dot:
         x, y = pts[-1]
-        for r, a in ((7 * S, 60), (4 * S, 255)):
-            d.ellipse((x - r, y - r, x + r, y + r), fill=_hex_rgba(color, a))
-        d.ellipse((x - 2 * S, y - 2 * S, x + 2 * S, y + 2 * S), fill=_hex_rgba(base_bg))
-
-
-_wash_cache: dict = {}
-
-
-def _hero_wash(size, box, color, S):
-    """Blurred colour glow in the hero card's corner (cached: the blur is slow)."""
-    key = (size, box, color)
-    if key not in _wash_cache:
-        x1, y1, x2, y2 = box
-        wash = Image.new("RGBA", size)
-        ImageDraw.Draw(wash).ellipse(((x2 - 120) * S, (y1 - 70) * S, (x2 + 40) * S, (y1 + 70) * S),
-                                     fill=_hex_rgba(color, 55))
-        wash = wash.filter(ImageFilter.GaussianBlur(26 * S))
-        clip = Image.new("L", size)
-        ImageDraw.Draw(clip).rounded_rectangle((x1 * S + S, y1 * S + S, x2 * S - 2 * S, y2 * S - 2 * S),
-                                               radius=R_PANEL * S, fill=255)
-        alpha = Image.composite(wash.getchannel("A"), Image.new("L", size), clip)
-        wash.putalpha(alpha)
-        _wash_cache.clear()
-        _wash_cache[key] = wash
-    return _wash_cache[key]
+        r = 3 * S
+        d.ellipse((x - r, y - r, x + r, y + r), fill=_hex_rgba(color))
 
 
 def _render_stats(w, h, hero, cards, cols, card_w, t, corner_r):
     """Whole widget body as one antialiased image, like the media widget."""
     from desktop_widgets.ui.drawing import key_out
+    from desktop_widgets.theme import PIL_FONT, PIL_SEMI, mix
     S = SCALE
     # Continue the card underneath (same geometry as BaseWidget's card) so the
     # side and bottom borders stay visible; outside it is keyed transparent.
     img = Image.new("RGBA", (w * S, h * S), _hex_rgba(t.border, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((S, (1 - HDR_H) * S, (w - 1) * S - 1, (h - 1) * S - 1),
+    d.rounded_rectangle((0, -HDR_H * S, w * S - 1, h * S - 1),
                         radius=max(0, corner_r) * S, fill=_hex_rgba(t.bg),
                         outline=_hex_rgba(t.border), width=S)
 
-    def text(x, y, value, size, color, bold=False, anchor="lt"):
+    def text(x, y, value, size, color, semibold=False, anchor="lt"):
         d.text((int(x * S), int(y * S)), value, fill=color,
-               font=_font("segoeuib.ttf" if bold else "segoeui.ttf", size * S), anchor=anchor)
+               font=_font(PIL_SEMI if semibold else PIL_FONT, size * S), anchor=anchor)
 
-    def panel(x1, y1, x2, y2, radius):
-        d.rounded_rectangle((x1 * S, y1 * S, x2 * S - 1, y2 * S - 1), radius=radius * S,
+    def panel(x1, y1, x2, y2):
+        d.rounded_rectangle((x1 * S, y1 * S, x2 * S - 1, y2 * S - 1), radius=R_PANEL * S,
                             fill=_hex_rgba(t.btn), outline=_hex_rgba(t.border), width=S)
+
+    track = mix(t.btn, t.txt, 0.12)
 
     # ── Hero ──
     if hero:
-        x1, y1, x2, y2 = INSET, INSET, w - INSET, INSET + HERO_H
-        panel(x1, y1, x2, y2, R_PANEL)
-        # Soft colour wash in the corner, like the media widget's artwork tint.
-        img.alpha_composite(_hero_wash(img.size, (x1, y1, x2, y2), hero["color"], S))
-        d = ImageDraw.Draw(img)
-        d.ellipse(((x1 + 16) * S, (y1 + 17) * S, (x1 + 22) * S, (y1 + 23) * S), fill=_hex_rgba(hero["color"]))
-        text(x1 + 28, y1 + 14, hero["label"].upper(), 8, _hex_rgba(t.txt2), bold=True)
-        text(x1 + 16, y1 + 30, hero["disp"], 28, _hex_rgba(t.txt), bold=True)
+        x1, y1, x2, y2 = INSET, 0, w - INSET, HERO_H
+        panel(x1, y1, x2, y2)
+        text(x1 + 16, y1 + 14, hero["label"], 9, _hex_rgba(t.txt2))
+        text(x1 + 15, y1 + 30, hero["disp"], 26, _hex_rgba(t.txt), semibold=True)
         if hero["sub"]:
-            text(x2 - 16, y1 + 14, hero["sub"], 9, _hex_rgba(t.txt2), anchor="rt")
-        chart = ((x1 + 16) * S, (y1 + 74) * S, (x2 - 20) * S, (y2 - 14) * S)
+            text(x2 - 16, y1 + 15, hero["sub"], 9, _hex_rgba(t.txt2), anchor="rt")
+        chart = ((x1 + 16) * S, (y1 + 72) * S, (x2 - 18) * S, (y2 - 14) * S)
         for k in (0.0, 0.5, 1.0):   # faint guide lines
             gy = chart[1] + (chart[3] - chart[1]) * k
-            d.line(((x1 + 16) * S, gy, (x2 - 16) * S, gy), fill=_hex_rgba(t.border, 120), width=S)
+            d.line(((x1 + 16) * S, gy, (x2 - 16) * S, gy), fill=_hex_rgba(t.border), width=S)
         _area_chart(img, d, chart, hero["history"], hero["color"], t.btn, S, line_w=2)
         top = y2 + GAP
     else:
-        top = INSET
+        top = 0
 
     # ── Cards ──
     for i, c in enumerate(cards):
@@ -188,23 +162,21 @@ def _render_stats(w, h, hero, cards, cols, card_w, t, corner_r):
         cx1 = INSET + col * (card_w + GAP)
         cy1 = top + row * (CARD_H + GAP)
         cx2, cy2 = cx1 + card_w, cy1 + CARD_H
-        panel(cx1, cy1, cx2, cy2, R_TILE)
-        d.ellipse(((cx1 + 12) * S, (cy1 + 15) * S, (cx1 + 17) * S, (cy1 + 20) * S), fill=_hex_rgba(c["color"]))
-        text(cx1 + 22, cy1 + 12, c["label"].upper(), 8, _hex_rgba(t.txt2), bold=True)
-        text(cx1 + 12, cy1 + 28, c["disp"], 17, _hex_rgba(t.txt), bold=True)
+        panel(cx1, cy1, cx2, cy2)
+        text(cx1 + 12, cy1 + 11, c["label"], 9, _hex_rgba(t.txt2))
+        text(cx1 + 12, cy1 + 27, c["disp"], 16, _hex_rgba(t.txt), semibold=True)
         if c["sub"] and card_w >= 120:
-            text(cx2 - 12, cy1 + 13, c["sub"], 8, _hex_rgba(t.txt2), anchor="rt")
+            text(cx2 - 12, cy1 + 12, c["sub"], 8, _hex_rgba(t.txt2), anchor="rt")
         if c["kind"] == "bar":
-            bx1, bx2, by = cx1 + 12, cx2 - 12, cy2 - 16
-            track = _lerp_color(t.btn, c["color"], 0.18)
-            d.rounded_rectangle((bx1 * S, by * S, bx2 * S, (by + 6) * S), radius=3 * S, fill=_hex_rgba(track))
+            bx1, bx2, by = cx1 + 12, cx2 - 12, cy2 - 15
+            d.rounded_rectangle((bx1 * S, by * S, bx2 * S, (by + 4) * S), radius=2 * S, fill=_hex_rgba(track))
             fill_x = bx1 + (bx2 - bx1) * max(0.0, min(1.0, c["frac"]))
-            if fill_x - bx1 >= 6:
-                d.rounded_rectangle((bx1 * S, by * S, fill_x * S, (by + 6) * S), radius=3 * S,
+            if fill_x - bx1 >= 4:
+                d.rounded_rectangle((bx1 * S, by * S, fill_x * S, (by + 4) * S), radius=2 * S,
                                     fill=_hex_rgba(c["color"]))
         elif c["kind"] == "spark":
-            _area_chart(img, d, ((cx1 + 10) * S, (cy2 - 26) * S, (cx2 - 10) * S, (cy2 - 9) * S),
-                        c["history"], c["color"], t.btn, S, line_w=1, glow=False)
+            _area_chart(img, d, ((cx1 + 10) * S, (cy2 - 24) * S, (cx2 - 10) * S, (cy2 - 9) * S),
+                        c["history"], c["color"], t.btn, S, line_w=1, dot=False)
 
     return key_out(img.resize((w, h), Image.LANCZOS))
 
@@ -227,8 +199,8 @@ class _Sample:
 
 
 class StatsPlusWidget(BaseWidget):
-    MIN_H = HDR_H + 2*INSET + HERO_H
-    MAX_H = HDR_H + 2*INSET + HERO_H + (CARD_H + GAP) * 11
+    MIN_H = HDR_H + INSET + HERO_H
+    MAX_H = HDR_H + INSET + HERO_H + (CARD_H + GAP) * 11
 
     def __init__(self, mgr: "Manager") -> None:
         self._sample      = _Sample()
@@ -282,9 +254,9 @@ class StatsPlusWidget(BaseWidget):
         """Hero card plus rows of small cards; the widget never clips."""
         n = len(self._visible_metrics())
         if not n:
-            return HDR_H + 2*INSET + CARD_H
+            return HDR_H + INSET + CARD_H
         rows = -(-(n - 1) // max(1, self._cols()))
-        return HDR_H + 2*INSET + HERO_H + rows*(CARD_H + GAP)
+        return HDR_H + INSET + HERO_H + rows*(CARD_H + GAP)
 
     # ── Polling ────────────────────────────────────────────
 
@@ -413,6 +385,9 @@ class StatsPlusWidget(BaseWidget):
     def _glow(self):
         return None   # the hero card carries the metric's glow
 
+    def _home_block(self):
+        return self.mgr.data.get("statsplus")
+
     def _theme(self):
         return config.get_theme(self.mgr.data,
                                 self.mgr.data.get("statsplus", {}).get("theme_override"))
@@ -469,7 +444,7 @@ class StatsPlusWidget(BaseWidget):
             "uptime":   (0,          None, self._fmt_uptime(s.uptime_s), "since boot"),
         }
         rate_colors = {"net_down": t.dn_col, "net_up": t.up_col,
-                       "disk_r": t.accent, "disk_w": t.warn}
+                       "disk_r": t.accent, "disk_w": t.dn_col}
         labels = {k: lbl for k, lbl, *_ in ALL_METRICS}
 
         items = []

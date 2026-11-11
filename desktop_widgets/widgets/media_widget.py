@@ -37,7 +37,7 @@ W_FIXED  = 360     # fixed widget width
 SCALE    = 3       # PIL render scale for antialiasing
 
 # Computed fixed height — must match _render_media layout exactly
-_BODY_H  = 344
+_BODY_H  = 300
 FIXED_H  = HDR_H + _BODY_H
 
 
@@ -183,10 +183,9 @@ def _best_font(text: str, preferred_name: str, size: int):
 
 def _layout(w):
     """Body coordinates shared by rendering, seeking and playback hit targets."""
-    return {"progress": (32, 228, w-32, 234), "controls_y": 292,
-            "panel": (16, 198, w-16, 332),
-            "controls": {"prev": (w//2-76, 23),
-                         "play_pause": (w//2, 30), "next": (w//2+76, 23)}}
+    return {"progress": (26, 200, w-26, 204), "controls_y": 258,
+            "controls": {"prev": (w//2-70, 19),
+                         "play_pause": (w//2, 24), "next": (w//2+70, 19)}}
 
 
 def _time_label(seconds):
@@ -207,7 +206,7 @@ def _backdrop(art, size, tint, S):
         w, h = size
         small = ImageOps.fit(art.convert('RGBA'), (w//2, h//2), method=Image.Resampling.BILINEAR)
         small = small.filter(ImageFilter.GaussianBlur(10))
-        small = Image.blend(small, Image.new('RGBA', small.size, tint), 0.76)
+        small = Image.blend(small, Image.new('RGBA', small.size, tint), 0.8)
         _backdrop_cache.clear()
         _backdrop_cache[key] = small.resize((w*S, h*S), Image.Resampling.BILINEAR)
     return _backdrop_cache[key]
@@ -215,119 +214,108 @@ def _backdrop(art, size, tint, S):
 
 def _render_media(w: int, h: int, tr: "_Track", t,
                   corner_r: int, hover=None, available=True) -> "Image.Image":
-    """A transparent, antialiased body that leaves the outer card intact."""
+    """The widget body as one antialiased image: artwork card, timeline and controls."""
     from PIL import ImageOps
-    from desktop_widgets.ui.drawing import widget_icon
+    from desktop_widgets.ui.drawing import widget_icon, key_out
+    from desktop_widgets.theme import PIL_FONT, PIL_SEMI, PIL_ICONS, ICON, mix, on_color, is_light
     S = SCALE
     img = Image.new("RGBA", (w*S, h*S), t.bg)
     d = ImageDraw.Draw(img)
     def box(coords):
         return tuple(int(v*S) for v in coords)
-    def text(x, y, value, size, color, bold=False, anchor="lt", max_width=None):
-        font = _best_font(value, "segoeuib.ttf" if bold else "segoeui.ttf", size*S)
+    def text(x, y, value, size, color, semibold=False, anchor="lt", max_width=None):
+        font = _best_font(value, PIL_SEMI if semibold else PIL_FONT, size*S)
         if max_width is not None:
             value = _truncate(value, font, int(max_width*S))
         d.text((int(x*S), int(y*S)), value, fill=color, font=font, anchor=anchor)
 
     active = bool(tr.title) and available
-    # A softly blurred colour wash ties the card to the current album artwork.
-    hero = box((16, 16, w-16, 188))
+    R = 8
+    # Artwork card: the album art, blurred and dimmed, ties the card to the song.
+    hero = box((14, 0, w-14, 172))
+    hw, hh = w-28, 172
     if tr.art_img is not None and active:
-        backdrop = _backdrop(tr.art_img, (w-32, 172), t.btn, S)
+        backdrop = _backdrop(tr.art_img, (hw, hh), t.btn, S)
         hero_mask = Image.new('L', backdrop.size)
-        ImageDraw.Draw(hero_mask).rounded_rectangle((0, 0, backdrop.width-1,
-            backdrop.height-1), radius=18*S, fill=255)
-        img.paste(backdrop, (16*S, 16*S), hero_mask)
+        ImageDraw.Draw(hero_mask).rounded_rectangle((0, 0, backdrop.width-1, backdrop.height-1),
+                                                    radius=R*S, fill=255)
+        img.paste(backdrop, (14*S, 0), hero_mask)
     else:
-        d.rounded_rectangle(hero, radius=18*S, fill=t.btn)
-        # The same soft corner light the other widgets use.
-        from desktop_widgets.ui.drawing import corner_glow
-        hw, hh = w-32, 172
-        light = corner_glow(hw, hh, t.accent, strength=55).resize((hw*S, hh*S), Image.Resampling.BILINEAR)
-        hero_mask = Image.new('L', (hw*S, hh*S))
-        ImageDraw.Draw(hero_mask).rounded_rectangle((S, S, hw*S-S-1, hh*S-S-1), radius=18*S, fill=255)
-        light.putalpha(ImageChops.multiply(light.getchannel('A'), hero_mask))
-        img.alpha_composite(light, (16*S, 16*S))
-        d = ImageDraw.Draw(img)
-    art_size = 128
+        d.rounded_rectangle(hero, radius=R*S, fill=t.btn)
+    d.rounded_rectangle(hero, radius=R*S, outline=t.border, width=S)
+    art_size = 140
+    ax, ay = 30, 16
     if tr.art_img is not None and active:
         art = ImageOps.fit(tr.art_img.convert("RGBA"), (art_size*S, art_size*S),
                            method=Image.Resampling.LANCZOS)
     else:
-        art = Image.new("RGBA", (art_size*S, art_size*S), t.hov)
-        icon = widget_icon('media', t.accent, size=42*S)
+        art = Image.new("RGBA", (art_size*S, art_size*S), mix(t.btn, t.txt, 0.06))
+        icon = widget_icon('media', t.txt2, size=40*S)
         art.alpha_composite(icon, ((art_size*S-icon.width)//2, (art_size*S-icon.height)//2))
-    d.rounded_rectangle(box((30, 34, 30+art_size, 34+art_size)),
-                        radius=16*S, fill=t.border)
     mask = Image.new("L", art.size)
-    ImageDraw.Draw(mask).rounded_rectangle((0,0,art.width-1,art.height-1), radius=15*S, fill=255)
-    img.paste(art, (28*S, 30*S), mask)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, art.width-1, art.height-1), radius=6*S, fill=255)
+    img.paste(art, (ax*S, ay*S), mask)
 
-    tx, tw = 174, w-194
-    d.ellipse(box((tx, 41, tx+6, 47)), fill=t.accent)
-    text(tx+12, 38, ((tr.source or 'Now playing') if active else 'Your soundtrack').upper(),
-         8, t.txt2, bold=True, max_width=tw-12)
-    title = tr.title if active else ('Ready when you are' if available else 'Media unavailable')
-    title_font = _best_font(title, 'segoeuib.ttf', 16*S)
+    tx = ax + art_size + 16
+    tw = w - tx - 28
+    text(tx, 26, (tr.source or 'Now playing') if active else 'Media', 9, t.txt2, max_width=tw)
+    title = tr.title if active else ('Nothing playing' if available else 'Media unavailable')
+    title_font = _best_font(title, PIL_SEMI, 15*S)
     lines = _wrap(title, title_font, tw*S)
     for i, line in enumerate(lines[:2]):
         if i == 1 and len(lines) > 2:
-            line += '…'
-        text(tx, 64+i*24, line, 17, t.txt, bold=True, max_width=tw)
+            line += '\u2026'
+        text(tx, 46+i*22, line, 15, t.txt, semibold=True, max_width=tw)
     artist = tr.artist or tr.album or 'Unknown artist'
-    if not active:
-        artist = 'Play something in your music app.' if available else 'Media integration could not start.'
     if active:
-        artist_y = 73 + 24*min(2, len(lines)) + 10
-        text(tx, artist_y, artist, 11, t.txt2, max_width=tw)
+        artist_y = 50 + 22*min(2, len(lines)) + 6
+        text(tx, artist_y, artist, 10, t.txt3, max_width=tw)
         if tr.album and tr.album != tr.title and tr.album != artist:
-            text(tx, artist_y+19, tr.album, 9, t.txt2, max_width=tw)
+            text(tx, artist_y+18, tr.album, 9, t.txt2, max_width=tw)
     else:
-        font = _best_font(artist, 'segoeui.ttf', 10*S)
-        for i, line in enumerate(_wrap(artist, font, tw*S)[:2]):
-            text(tx, 122+i*15, line, 10, t.txt2, max_width=tw)
+        hint = 'Play something in your music app.' if available else 'Media integration could not start.'
+        font = _best_font(hint, PIL_FONT, 10*S)
+        for i, line in enumerate(_wrap(hint, font, tw*S)[:3]):
+            text(tx, 74+i*16, line, 10, t.txt2, max_width=tw)
 
-    d.rounded_rectangle(hero, radius=18*S, outline=t.border, width=S)
-    layout = _layout(w)
-    d.rounded_rectangle(box(layout['panel']), radius=16*S, fill=t.btn, outline=t.border, width=S)
-    px, py = layout['panel'][0] + 16, layout['panel'][1] + 13
-    d.ellipse(box((px, py+3, px+6, py+9)), fill=t.accent)
-    text(px+12, py, 'PROGRESS', 8, t.txt2, bold=True)
-
+    # Transport controls: subtle round buttons, the play button filled with the accent.
     layout = _layout(w)
     cy = layout['controls_y']
-    ar, ag, ab = _hex(t.accent)
-    on_accent = '#10141d' if (ar*299+ag*587+ab*114)/1000 > 160 else '#ffffff'
+    try:
+        icon_path = os.path.join(_WINFONTS, PIL_ICONS)
+        glyphs = {size: ImageFont.truetype(icon_path, size*S) for size in (14, 17)}
+    except OSError:
+        glyphs = None
     for command, (cx, radius) in layout['controls'].items():
         primary = command == 'play_pause'
-        control = '#%02x%02x%02x' % _mix(t.btn, t.txt, 0.07)   # one step lighter than the panel
-        fill = t.accent if primary and active else t.hov if hover == command and active else control
-        d.ellipse(box((cx-radius, cy-radius, cx+radius, cy+radius)),
-                  fill=fill, outline=t.accent if hover == command and active else t.border,
-                  width=S if not primary else 2*S)
-        color = on_accent if primary and active else t.txt if active else t.txt2
-        if command == 'play_pause':
-            if tr.playing and active:
-                for offset in (-7, 3):
-                    d.rounded_rectangle(box((cx+offset, cy-9, cx+offset+4, cy+9)), radius=S, fill=color)
-            else:
-                d.polygon([(int(x*S),int(y*S)) for x,y in ((cx-5,cy-10),(cx-5,cy+10),(cx+10,cy))], fill=color)
+        hovered = hover == command and active
+        if primary:
+            fill = t.accent
+            if hovered:
+                fill = mix(t.accent, '#000000' if is_light(t) else '#ffffff', 0.12)
+            if not active:
+                fill = mix(t.btn, t.txt, 0.08)
+            d.ellipse(box((cx-radius, cy-radius, cx+radius, cy+radius)), fill=fill)
+            color = on_color(t.accent) if active else t.txt2
         else:
-            sign = -1 if command == 'prev' else 1
-            d.polygon([(int(x*S),int(y*S)) for x,y in
-                       ((cx-5*sign,cy-7),(cx-5*sign,cy+7),(cx+5*sign,cy))], fill=color)
-            d.rounded_rectangle(box((cx+(7 if sign>0 else -9),cy-7,
-                                     cx+(9 if sign>0 else -7),cy+7)), radius=S, fill=color)
-    # Composite internal antialiasing onto the theme background, then cut only
-    # the outer bottom corners. This avoids color-key fringes in light themes.
+            if hovered:
+                d.ellipse(box((cx-radius, cy-radius, cx+radius, cy+radius)), fill=t.btn_h)
+            color = t.txt if active else t.txt2
+        name = ('pause' if tr.playing and active else 'play') if primary else command
+        if glyphs:
+            d.text((cx*S, cy*S), ICON[name], fill=color, font=glyphs[17 if primary else 14], anchor='mm')
+        else:
+            label = {'play': '>', 'pause': '||', 'prev': '|<', 'next': '>|'}[name]
+            text(cx, cy, label, 12, color, anchor='mm')
+    # Cut only the outer bottom corners so the card's rounded edge continues.
     mask = Image.new('L', img.size)
     md = ImageDraw.Draw(mask)
     radius = max(0, corner_r-1)*S
-    md.rounded_rectangle((S,0,(w-1)*S-1,(h-1)*S-1), radius=radius, fill=255)
-    md.rectangle((S,0,(w-1)*S-1,max(0,h*S-radius-2*S)), fill=255)
+    md.rounded_rectangle((S, 0, (w-1)*S-1, (h-1)*S-1), radius=radius, fill=255)
+    md.rectangle((S, 0, (w-1)*S-1, max(0, h*S-radius-2*S)), fill=255)
     img.putalpha(mask)
-    from desktop_widgets.ui.drawing import key_out
-    return key_out(img.resize((w,h), Image.Resampling.LANCZOS))
+    return key_out(img.resize((w, h), Image.Resampling.LANCZOS))
+
 
 def _wrap(text: str, font, max_px: int) -> list[str]:
     """Simple word-wrap for PIL text."""
@@ -505,6 +493,7 @@ class MediaWidget(BaseWidget):
     def _draw_progress_only(self, position: float) -> None:
         """Update only the timeline; artwork is retained between polls."""
         from desktop_widgets.ui.drawing import rounded_rect
+        from desktop_widgets.theme import TYPE, mix
         if not self._body_photo or self._collapsed:
             return
         t = self._theme()
@@ -513,21 +502,25 @@ class MediaWidget(BaseWidget):
         y2 += HDR_H
         self.cv.delete('prog_tick')
         before = set(self.cv.find_all())
-        track = '#%02x%02x%02x' % _mix(t.btn, t.accent, 0.18)   # same bars as System stats
-        rounded_rect(self.cv, x1, y1, x2, y2, 3, fill=track)
+        rounded_rect(self.cv, x1, y1, x2, y2, 2, fill=mix(t.bg, t.txt, 0.18))
         with self._lock:
             tr = self._track
         known = bool(tr.title) and tr.duration > 0
         fraction = max(0, min(1, position)) if known else 0
         fill_w = int((x2-x1)*fraction)
-        if fill_w:
-            rounded_rect(self.cv, x1, y1, x1+fill_w, y2, min(3,fill_w/2), fill=t.accent)
-        self.cv.create_text(x1, y2+15, text=_time_label(fraction*tr.duration) if known else '—:—',
-                            fill=t.txt2, font=('Segoe UI', 9), anchor='w')
-        self.cv.create_text(x2, y2+15, text=_time_label(tr.duration) if known else '—:—',
-                            fill=t.txt2, font=('Segoe UI', 9), anchor='e')
+        if fill_w >= 4:
+            rounded_rect(self.cv, x1, y1, x1+fill_w, y2, 2, fill=t.accent)
+        if known:
+            tx = x1 + fill_w
+            self.cv.create_oval(tx-7, y1-5, tx+7, y2+5, fill=t.btn_h, outline=t.border)
+            self.cv.create_oval(tx-3, y1-1, tx+3, y2+1, fill=t.accent, outline='')
+        self.cv.create_text(x1, y2+17, text=_time_label(fraction*tr.duration) if known else '0:00',
+                            fill=t.txt2, font=TYPE['caption'], anchor='w')
+        self.cv.create_text(x2, y2+17, text=_time_label(tr.duration) if known else '0:00',
+                            fill=t.txt2, font=TYPE['caption'], anchor='e')
         for item in set(self.cv.find_all())-before:
             self.cv.addtag_withtag('prog_tick', item)
+
     def _send_command(self, cmd: str) -> None:
         if not WINSDK_OK: return
         async def _run():
@@ -561,6 +554,9 @@ class MediaWidget(BaseWidget):
 
     def _glow(self):
         return None   # the body draws its own album-art wash
+
+    def _home_block(self):
+        return self.mgr.data.get("media")
 
     def _theme(self):
         return config.get_theme(self.mgr.data,

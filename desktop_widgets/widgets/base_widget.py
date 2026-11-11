@@ -107,47 +107,49 @@ class BaseWidget:
         t  = self._theme()
         r  = config.get_corner_radius(self.mgr.data)
 
-        # Card and header band as one image whose outside is exactly the
-        # transparent key colour, so the corners stay clean on any wallpaper.
-        card(self.cv, 1, 1, self.W - 2, self.H - 2, r, t.bg, t.border, t.hdr, HDR_H - 1,
-             glow=None if self._collapsed else self._glow())
+        # One flat card whose outside is exactly the transparent key colour,
+        # so the corners stay clean on any wallpaper.
+        card(self.cv, 0, 0, self.W, self.H, r, t.bg, t.border)
 
-
-        # Collapse button
+        # Collapse chevron
         self.cv.create_rectangle(0, 0, HDR_H, HDR_H,
                                  fill="", outline="", tags="collapse_btn")
-        glyph(self.cv, HDR_H // 2 + 2, HDR_H // 2,
+        glyph(self.cv, HDR_H // 2 + 2, HDR_H // 2 + 1,
               "chevron_right" if self._collapsed else "chevron_down",
-              t.txt2, 16, tags="collapse_btn")
+              t.txt2, 11, tags="collapse_btn")
 
-        # Resize grip dots — only shown when resize is enabled
+        # Resize grip — only shown when resize is enabled
         if (not self._collapsed and self.mgr.data.get("resize_enabled", True)
                 and (self.MIN_W != self.MAX_W or self.MIN_H != self.MAX_H)):
-            gc = t.border
-            for off in (4, 8):
-                self.cv.create_line(self.W-14-off, self.H-12, self.W-14, self.H-12-off,
-                                    fill=gc, width=1)
+            for dx, dy in ((5, 5), (5, 9), (9, 5)):
+                x, y = self.W - 4 - dx, self.H - 4 - dy
+                self.cv.create_oval(x - 1, y - 1, x + 1, y + 1, fill=t.border, outline="")
         self._draw()
 
     def paint_header(self, title: str, meta: str = "", meta_on: bool = False,
                      action: bool = False) -> None:
-        """Shared header: bold title left, status in caps and a round + right."""
+        """Shared header: title left, quiet status and an add button right."""
         t = self._theme()
-        right = self.W - 16
+        right = self.W - 14
         if action:
-            cx, cy, r = self.W - HDR_H // 2 - 2, HDR_H // 2, ACTION_R
-            _rounded_rect(self.cv, cx - r, cy - r, cx + r + 1, cy + r + 1, r,
-                          fill=t.btn, outline=t.border, width=1)
-            glyph(self.cv, cx, cy, "plus", t.txt, 14, tags="add_btn")
-            right = cx - r - 10
+            size = 2 * ACTION_R
+            x2, y1 = self.W - 8, (HDR_H - size) // 2
+            _rounded_rect(self.cv, x2 - size, y1, x2, y1 + size, 5, fill=t.btn,
+                          outline=t.border)
+            glyph(self.cv, x2 - size / 2, y1 + size / 2, "add", t.txt, 12, tags="add_btn")
+            right = x2 - size - 10
         meta_w = 0
         if meta and not self._collapsed:
-            item = self.cv.create_text(right, HDR_H // 2, text=meta.upper(), font=TYPE["meta"],
-                                       fill=t.accent if meta_on else t.txt2, anchor="e")
+            item = self.cv.create_text(right, HDR_H // 2, text=meta, font=TYPE["meta"],
+                                       fill=t.txt2, anchor="e")
             x1, _, x2, _ = self.cv.bbox(item)
             meta_w = x2 - x1 + 10
-        room = max(24, right - meta_w - (HDR_H + 4))
-        item = self.cv.create_text(HDR_H + 4, HDR_H // 2, text=title,
+            if meta_on:      # a small live dot before the status
+                cy = HDR_H // 2 + 1
+                self.cv.create_oval(x1 - 11, cy - 3, x1 - 5, cy + 3, fill=t.ok, outline="")
+                meta_w += 10
+        room = max(24, right - meta_w - (HDR_H + 2))
+        item = self.cv.create_text(HDR_H + 2, HDR_H // 2, text=title,
                                    font=TYPE["header"], fill=t.txt, anchor="w")
         # Trim long titles to the space left of the status text.
         while title and self.cv.bbox(item)[2] - self.cv.bbox(item)[0] > room:
@@ -156,32 +158,58 @@ class BaseWidget:
 
     def paint_panel(self, x1: int, y1: int, x2: int, y2: int, fill: str | None = None,
                     glow: str | None = None):
-        """Inset rounded panel, the same treatment as the media artwork card;
-        glow adds the shared corner light inside it (like the stats hero)."""
+        """Inset card on the widget surface (Windows 11 'layer')."""
         from desktop_widgets.ui.drawing import panel_image
         t = self._theme()
-        photo = panel_image(self.cv, x2 - x1, y2 - y1, R_PANEL, fill or t.btn, t.border, t.bg, glow)
+        photo = panel_image(self.cv, x2 - x1, y2 - y1, R_PANEL, fill or t.btn, t.border, t.bg)
         return self.cv.create_image(x1, y1, image=photo, anchor="nw")
 
-    def paint_empty(self, kind: str, title: str, hint: str) -> None:
-        """Empty state: an inset panel with the widget's icon and a short hint."""
+    def paint_empty(self, kind: str, title: str, hint: str, top: int = HDR_H) -> None:
+        """Empty state: the widget's icon, a short title and a hint."""
         from PIL import ImageTk
         from desktop_widgets.ui.drawing import widget_icon
         t = self._theme()
-        x1, y1, x2, y2 = INSET, HDR_H + INSET, self.W - INSET, self.H - INSET
+        x1, y1, x2, y2 = INSET, top, self.W - INSET, self.H - INSET
         self.paint_panel(x1, y1, x2, y2)
         cy = (y1 + y2) // 2
         compact = y2 - y1 < 110
         if not compact:
-            photo = ImageTk.PhotoImage(widget_icon(kind, t.accent, 28), master=self.cv)
+            photo = ImageTk.PhotoImage(widget_icon(kind, t.txt2, 28), master=self.cv)
             self.__dict__.setdefault("_empty_refs", []).append(photo)
             del self._empty_refs[:-2]
             self.cv.create_image(self.W // 2, cy - 26, image=photo)
-        self.cv.create_text(self.W // 2, cy + (0 if compact else 6) - 8, text=title,
-                            font=TYPE["header"], fill=t.txt)
-        self.cv.create_text(self.W // 2, cy + (0 if compact else 6) + 10, text=hint,
+        self.cv.create_text(self.W // 2, cy + (0 if compact else 6) - 6, text=title,
+                            font=TYPE["strong"], fill=t.txt)
+        self.cv.create_text(self.W // 2, cy + (0 if compact else 6) + 13, text=hint,
                             font=TYPE["caption"], fill=t.txt2,
                             width=max(60, x2 - x1 - 24), justify="center")
+
+    def _home_block(self) -> dict | None:
+        """The saved data block holding this widget's x/y (its "home")."""
+        return None
+
+    def restore_home(self) -> None:
+        """Go back to the saved position and size, fitted to the current screens.
+
+        Used when the display layout changes (a monitor reconnects, the
+        resolution settles after sign-in). The saved layout is never
+        overwritten here, so a temporarily small screen cannot lose it."""
+        blk = self._home_block()
+        if not blk or self._mode:
+            return
+        if hasattr(self, "_natural_w"):          # folders, files and stacks size to content
+            self.W, self._full_h = self._natural_w, self._natural_h
+        else:
+            if blk.get("w") and self.MIN_W != self.MAX_W:
+                self.W = max(self.MIN_W, min(self.MAX_W, int(blk["w"])))
+            if blk.get("h") and self.MIN_H != self.MAX_H:
+                self._full_h = max(self.MIN_H, min(self.MAX_H, int(blk["h"])))
+        self.H = HDR_H if self._collapsed else self._full_h
+        x, y = int(blk.get("x", self._win_x())), int(blk.get("y", self._win_y()))
+        x, y = clamp(x, y, self.W, self.H, area_for(self.win, x, y, self.W, self.H))
+        self.win.geometry(f"{self.W}x{self.H}+{x}+{y}")
+        self.cv.config(width=self.W, height=self.H)
+        self.redraw()
 
     def fit_work_area(self):
         """Keep content growth, expansion and display changes above the taskbar."""
@@ -196,9 +224,9 @@ class BaseWidget:
             self.win.geometry(f'{width}x{height}+{nx}+{ny}')
             self.cv.configure(width=width, height=height)
 
-    def tile_range(self, count, cols, cell_h, pad):
+    def tile_range(self, count, cols, cell_h, pad, top=HDR_H):
         """Scroll rows inside the widget when its contents exceed the work area."""
-        rows = max(1, (self.H - HDR_H - 2*pad) // cell_h)
+        rows = max(1, (self.H - top - pad) // cell_h)
         total_rows = (count + cols - 1) // cols
         self._max_row_offset = max(0, total_rows - rows)
         self._row_offset = min(getattr(self, '_row_offset', 0), self._max_row_offset)
@@ -206,9 +234,9 @@ class BaseWidget:
             self.cv.bind('<MouseWheel>', self._scroll_tiles)
             self._tile_wheel_bound = True
         if self._max_row_offset:
-            self.cv.create_text(self.W//2, self.H-7,
+            self.cv.create_text(self.W//2, self.H-8,
                                 text='Scroll for more', fill=self._theme().txt2,
-                                font=('Segoe UI', 7))
+                                font=TYPE['caption'])
         start = self._row_offset * cols
         return range(start, min(count, start + rows*cols))
 
@@ -432,13 +460,7 @@ class BaseWidget:
 
             # Push all overlapping widgets away — 4 directions, cascading
             from desktop_widgets.utils import reflow_push_down
-            all_widgets = (
-                list(self.mgr.wins.values()) +
-                [w for w in [self.mgr.statsplus_win,
-                              self.mgr.notes_win,
-                              self.mgr.media_win] if w] +
-                list(self.mgr.docs_wins.values())
-            )
+            all_widgets = self.mgr.all_widgets()
             other_widgets = [w for w in all_widgets if w is not self
                              and area_for(self.win, *w.rect()) == area]
             new_positions  = reflow_push_down(nx, ny, self.W, self.H,
@@ -489,7 +511,7 @@ class BaseWidget:
         else:
             p = tk.Toplevel(self.mgr.root)
             p.overrideredirect(True)
-            p.attributes("-alpha", 0.18)
+            p.attributes("-alpha", 0.14)
             p.configure(bg=self._theme().accent)
             p.geometry(f"{self.W}x{self.H}+{sx}+{sy}")
             self._prev = p

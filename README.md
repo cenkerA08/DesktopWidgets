@@ -53,7 +53,7 @@ desktop_widgets/
   config.py, theme.py      # Saved preferences and theme palettes
   version.py, utils.py     # Version metadata and shared helpers
   widgets/                # BaseWidget, app folders, files, notes, media, stats
-  ui/                     # Settings, focus view, menus, welcome and changelog
+  ui/                     # Settings, menus, welcome and changelog
   services/               # Updates, monitor work areas, release notes, safe I/O
 tests/                    # Unit and real-Tk regression checks
 main.py                   # Source / PyInstaller entry point
